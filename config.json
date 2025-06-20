@@ -1,5 +1,5 @@
 {
-    "cpu": "default",
+    "cpu": "host",
     "smp_passthrough": false,
     "cpu_mitigations": false,
     "topology_enabled": false,
@@ -7,15 +7,72 @@
     "smp_sockets": 1,
     "smp_cores": 1,
     "smp_threads": 1,
+    "architecture": "Architecture: i386",
+    "qemu_executable": "qemu-system-i386",
+    "custom_executable": "",
+    "machine_type": "pc",
+    "qemu_args": "-drive file=hdd/win98.qcow2,id=disk0,if=scsi,format=qcow2 -drive file=extras/disk.img,id=disk1,if=scsi,format=raw -drive file=cdrom/win98qi_v0.9.6_ALL.iso,id=disk2,if=none -drive file=cdrom/softgpu-0.6.2024.40.iso,id=disk3,if=none -drive file=cdrom/wrappers.iso,id=disk4,if=none -drive file=cdrom/mesa9x-24.1.5.114-driver-win98.iso,id=disk5,if=none -drive file=cdrom/Security9_enu_15.iso,id=disk6,if=none -drive file=cdrom/vmaddons.iso,id=disk7,if=none -drive file=floppy/disks/abd4/fd4.ima,if=floppy,unit=0 -cpu host -m 2048 -machine pc -accel kvm -smp 4",
+    "extra_args": [],
+    "memory_mb": 2048,
+    "kvm_acceleration": true,
     "drives": [
         {
             "id": "disk0",
-            "file": "/home/luiz/win98/hdd/win98.qcow2",
-            "if": "none",
+            "file": "hdd/win98.qcow2",
+            "if": "scsi",
             "media": "disk",
             "format": "qcow2"
+        },
+        {
+            "id": "disk1",
+            "file": "extras/disk.img",
+            "if": "scsi",
+            "media": "disk",
+            "format": "raw"
+        },
+        {
+            "id": "disk2",
+            "file": "cdrom/win98qi_v0.9.6_ALL.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk3",
+            "file": "cdrom/softgpu-0.6.2024.40.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk4",
+            "file": "cdrom/wrappers.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk5",
+            "file": "cdrom/mesa9x-24.1.5.114-driver-win98.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk6",
+            "file": "cdrom/Security9_enu_15.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk7",
+            "file": "cdrom/vmaddons.iso",
+            "if": "none",
+            "media": "cdrom"
         }
     ],
-    "floppies": [],
-    "qemu_args": "-drive file=/home/luiz/win98/hdd/win98.qcow2,id=disk0,if=none,format=qcow2"
+    "floppies": [
+        {
+            "unit": 0,
+            "file": "floppy/disks/abd4/fd4.ima"
+        }
+    ],
+    "scsi_controller_needed": true,
+    "virtio_controller_needed": false
 }

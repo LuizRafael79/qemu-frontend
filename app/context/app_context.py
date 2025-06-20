@@ -17,6 +17,8 @@ class AppContext(QObject):
         self._is_loading = False
         self._blocking_signals = False
 
+
+
     # ---------- Configuração ----------
 
     def set_config(self, new_config):
@@ -25,8 +27,6 @@ class AppContext(QObject):
         self.config_modified = False
 
     def update_config(self, partial_config):
-        if self._is_loading or self._blocking_signals:
-            return
 
         modified = False
         for key, value in partial_config.items():
@@ -35,6 +35,7 @@ class AppContext(QObject):
                 modified = True
 
         if modified:
+            print("[update_config] Emite config_changed")
             self.config_changed.emit()
             self.config_modified = True
 

@@ -20,6 +20,7 @@ class MainWindow(QWidget):
         self.resize(900, 600)
 
         self.app_context = AppContext()
+        self.overview_page = OverviewPage(self.app_context)
 
         self.app_context.config_changed.connect(self._config_changed)
         self.app_context.config_loaded.connect(self._config_loaded)
