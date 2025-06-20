@@ -7,7 +7,7 @@ from PyQt5.QtGui import QIntValidator
 import multiprocessing
 import os
 from typing import Optional, List, Dict, Any
-from app.utils.qemu_helper import QemuHelper, QemuInfoCache
+from app.utils.qemu_helper import QemuHelper
 from app.context.app_context import AppContext
 import sys
 import os
@@ -158,7 +158,10 @@ class HardwarePage(QWidget):
         self.mem_combo.setEditable(True)
         mem_sizes = [str(2**i) for i in range(8, 16)]  # 256MB to 32768MB
         self.mem_combo.addItems(mem_sizes)
-        self.mem_combo.setValidator(QIntValidator(128, 65536))
+        # Set validator on the line edit of the combo box
+        line_edit = self.mem_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setValidator(QIntValidator(128, 65536))
         parent_layout.addWidget(self.mem_combo)
 
     def bind_signals(self):
@@ -367,8 +370,10 @@ class HardwarePage(QWidget):
         Central function to update CPU-related UI elements and application config.
         This avoids recursion by centralizing logic and blocking signals.
         """
-        # Block signals to prevent recursive calls
-        self._set_cpu_signals_blocked(True)
+        # Use a guard flag to prevent recursion
+        if getattr(self, "_updating_cpu_ui", False):
+            return
+        self._updating_cpu_ui = True
 
         try:
             # --- Read current UI state ---
@@ -398,10 +403,16 @@ class HardwarePage(QWidget):
                 cores = self.smp_cores_spinbox.value()
                 threads = self.smp_threads_spinbox.value()
                 smp_cpus = sockets * cores * threads
-                self.smp_cpu_spinbox.setValue(smp_cpus)
+                if self.smp_cpu_spinbox.value() != smp_cpus:
+                    self.smp_cpu_spinbox.blockSignals(True)
+                    self.smp_cpu_spinbox.setValue(smp_cpus)
+                    self.smp_cpu_spinbox.blockSignals(False)
             elif is_host_cpu and passthrough_enabled:
                 smp_cpus = max(1, self.host_cpu_count // 2)
-                self.smp_cpu_spinbox.setValue(smp_cpus)
+                if self.smp_cpu_spinbox.value() != smp_cpus:
+                    self.smp_cpu_spinbox.blockSignals(True)
+                    self.smp_cpu_spinbox.setValue(smp_cpus)
+                    self.smp_cpu_spinbox.blockSignals(False)
             else:
                 smp_cpus = self.smp_cpu_spinbox.value()
 
@@ -423,8 +434,7 @@ class HardwarePage(QWidget):
             self.app_context.update_config(config_update)
 
         finally:
-            # Unblock signals
-            self._set_cpu_signals_blocked(False)
+            self._updating_cpu_ui = False
         
         self.hardware_config_changed.emit()
 

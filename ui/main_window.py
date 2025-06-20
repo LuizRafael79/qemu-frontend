@@ -29,7 +29,8 @@ class MainWindow(QWidget):
         self.config_file = "config.json"
         self._vm_state = {'theme': 'dark'}
         self.qemu_process = None
-
+        self.recursion_prevent = False
+  
         self.setup_ui()
         self.apply_theme()
         self.load_vm_config_from_file()
@@ -249,12 +250,15 @@ class MainWindow(QWidget):
         finally:
             self.app_context.finish_loading()
             self.update_window_title()
-
+  
     def update_window_title(self):
-        base_title = "Frontend QEMU 3DFX"
-        title = "\u25CF " + base_title if self.app_context.is_modified() else base_title
-        self.setWindowTitle(title)
-
+        if not self.recursion_prevent:
+            self.recursion_prevent = True
+            base_title = "Frontend QEMU 3DFX"
+            title = "\u25CF " + base_title if self.app_context.is_modified() else base_title
+            self.setWindowTitle(title)
+            self.recursion_prevent = False
+  
     def qemu_direct_parse(self, cmdline: list[str]):
         self.hardware_page.qemu_direct_parse(cmdline)
         self.storage_page.qemu_direct_parse(cmdline)

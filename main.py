@@ -7,10 +7,12 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 from PyQt5.QtWidgets import QApplication
-from ui.main_window import MainWindow
-
+# Import MainWindow inside the main block to avoid circular import issues
+MainWindow = None
 if __name__ == "__main__":
+    from ui.main_window import MainWindow  # Import here to avoid circular import
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
+    sys.exit(app.exec_())
     sys.exit(app.exec_())
