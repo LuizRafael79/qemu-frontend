@@ -186,28 +186,28 @@ class StoragePage(QWidget):
         self.floppy_count = 0
         self.loading = False  # FLAG para controlar mudanças durante carga
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setAlignment(Qt.AlignTop)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.title_label = QLabel("Virtual Machine Storage")
         self.title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.layout.addWidget(self.title_label)
+        self.main_layout.addWidget(self.title_label)
 
-        self.layout.addWidget(QLabel("Drives (HD/CD):"))
+        self.main_layout.addWidget(QLabel("Drives (HD/CD):"))
         self.btn_add_drive = QPushButton("Adicionar Drive")
         self.btn_add_drive.clicked.connect(self.add_drive)
-        self.layout.addWidget(self.btn_add_drive)
+        self.main_layout.addWidget(self.btn_add_drive)
 
         self.drive_container = QVBoxLayout()
-        self.layout.addLayout(self.drive_container)
+        self.main_layout.addLayout(self.drive_container)
 
-        self.layout.addWidget(QLabel("Drives de Disquete:"))
+        self.main_layout.addWidget(QLabel("Drives de Disquete:"))
         self.btn_add_floppy = QPushButton("Adicionar Disquete")
         self.btn_add_floppy.clicked.connect(self.add_floppy)
-        self.layout.addWidget(self.btn_add_floppy)
+        self.main_layout.addWidget(self.btn_add_floppy)
 
         self.floppy_container = QVBoxLayout()
-        self.layout.addLayout(self.floppy_container)
+        self.main_layout.addLayout(self.floppy_container)
 
     # ---------- Parse direto CLI string -> widgets ----------
 
@@ -327,7 +327,7 @@ class StoragePage(QWidget):
         })
 
     def qemu_reverse_parse_args(self):
-        self.blockSignals(True) # <--- ADICIONE ESTA LINHA
+        self.blockSignals(True)  # <--- ADICIONE ESTA LINHA
         args = []
         for widget in self.drive_widgets:
             data = widget.get_drive_data()
@@ -342,49 +342,9 @@ class StoragePage(QWidget):
                 parts.append(f"format={data.get('format', 'raw')}")
             args.append("-drive")
             args.append(",".join(parts))
-
-            if data['media'] == 'cdrom':
-                if data['if'] == 'ide':
-                    args.append(f"-device ide-cd,drive={data['id']}")
-                elif data['if'] == 'scsi':
-                    args.append(f"-device scsi-cd,drive={data['id']}")
-                elif data['if'] == 'sd':
-                    args.append(f"-device sd-cd,drive={data['id']}")
-                elif data['if'] == 'mtd':
-                    args.append(f"-device mtd-cd,drive={data['id']}")
-                else:
-                    args.append(f"-device ide-cd,drive={data['id']}")
-            else:
-                if data['if'] == 'ide':
-                    args.append(f"-device ide-hd,drive={data['id']}")
-                elif data['if'] == 'scsi':
-                    args.append(f"-device scsi-hd,drive={data['id']}")
-                elif data['if'] == 'sd':
-                    args.append(f"-device sd-hd,drive={data['id']}")
-                elif data['if'] == 'mtd':
-                    args.append(f"-device mtd-hd,drive={data['id']}")
-                elif data['if'] == 'virtio':
-                    args.append(f"-device virtio-blk-pci,drive={data['id']}")
-                else:
-                    args.append(f"-device ide-hd,drive={data['id']}")
-
-        for widget in self.floppy_widgets:
-            data = widget.get_floppy_data()
-            if not data:
-                continue
-            parts = [
-                f"file={data['file']}",
-                f"id=floppy{data['unit']}",
-                f"if=floppy",
-                f"unit={data['unit']}",
-                "format=raw"
-            ]
-            args.append("-drive")
-            args.append(",".join(parts))
-
-        return args
         self.blockSignals(False)
-
+        return args
+  
     def args_list_to_multiline_str(self, args_list):
         lines = []
         i = 0
@@ -399,9 +359,7 @@ class StoragePage(QWidget):
         if lines:
             lines[-1] = lines[-1].rstrip(" \\")
         return "\n".join(lines)
-        
-        self.blockSignals(True) # <--- ADICIONE ESTA LINHA
-
+  
     def _on_storage_changed(self):
         if self.loading:
             return

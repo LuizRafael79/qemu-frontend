@@ -7,8 +7,8 @@
     "smp_sockets": 1,
     "smp_cores": 1,
     "smp_threads": 1,
-    "architecture": "Architecture: i386",
-    "qemu_executable": "qemu-system-i386",
+    "architecture": "Architecture: x86_64",
+    "qemu_executable": "qemu-system-x86_64",
     "custom_executable": "",
     "drives": [
         {
@@ -68,7 +68,10 @@
             "file": "floppy/disks/abd4/fd4.ima"
         }
     ],
-    "qemu_args": "-drive file=hdd/win98.qcow2,id=disk0,if=scsi,format=qcow2 \\\n-device scsi-hd,drive=disk0 \\\n-drive file=extras/disk.img,id=disk1,if=scsi,format=raw \\\n-device scsi-hd,drive=disk1 \\\n-drive file=cdrom/win98qi_v0.9.6_ALL.iso,id=disk2,if=none \\\n-device ide-cd,drive=disk2 \\\n-drive file=cdrom/softgpu-0.6.2024.40.iso,id=disk3,if=none \\\n-device ide-cd,drive=disk3 \\\n-drive file=cdrom/wrappers.iso,id=disk4,if=none \\\n-device ide-cd,drive=disk4 \\\n-drive file=cdrom/mesa9x-24.1.5.114-driver-win98.iso,id=disk5,if=none \\\n-device ide-cd,drive=disk5 \\\n-drive file=cdrom/Security9_enu_15.iso,id=disk6,if=none \\\n-device ide-cd,drive=disk6 \\\n-drive file=cdrom/vmaddons.iso,id=disk7,if=none \\\n-device ide-cd,drive=disk7 \\\n-drive file=floppy/disks/abd4/fd4.ima,id=floppy0,if=floppy,unit=0,format=raw",
+    "qemu_args": "-drive file=hdd/win98.qcow2,id=disk0,if=scsi,format=qcow2 \\\n-drive file=extras/disk.img,id=disk1,if=scsi,format=raw \\\n-drive file=cdrom/win98qi_v0.9.6_ALL.iso,id=disk2,if=none \\\n-drive file=cdrom/softgpu-0.6.2024.40.iso,id=disk3,if=none \\\n-drive file=cdrom/wrappers.iso,id=disk4,if=none \\\n-drive file=cdrom/mesa9x-24.1.5.114-driver-win98.iso,id=disk5,if=none \\\n-drive file=cdrom/Security9_enu_15.iso,id=disk6,if=none \\\n-drive file=cdrom/vmaddons.iso,id=disk7,if=none",
     "scsi_controller_needed": true,
-    "virtio_controller_needed": false
+    "virtio_controller_needed": false,
+    "kvm_acceleration": true,
+    "machine_type": "q35",
+    "memory_mb": 10244
 }

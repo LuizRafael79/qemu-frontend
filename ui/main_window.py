@@ -258,10 +258,9 @@ class MainWindow(QWidget):
 
     def qemu_direct_parse(self, cmdline: list[str]):
         self.storage_page.qemu_direct_parse(cmdline)
-        self.storage_page.qemu_direct_parse(cmdline)
 
     def qemu_reverse_parse(self):
         args = []
-        args += self.hardware_page.qemu_reverse_parse_args()
+        #args += self.hardware_page.qemu_reverse_parse_args()
         args += self.storage_page.qemu_reverse_parse_args()
         self.overview_page.update_qemu_args(args)
