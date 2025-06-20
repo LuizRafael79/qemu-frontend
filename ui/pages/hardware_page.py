@@ -449,3 +449,109 @@ class HardwarePage(QWidget):
         ]
         for widget in widgets:
             widget.blockSignals(blocked)
+
+    def qemu_direct_parse(self, cmdline_str):
+        tokens = self.app_context.split_shell_command(cmdline_str)
+        config = {}
+
+        def consume_arg(key):
+            try:
+                idx = tokens.index(key)
+                val = tokens[idx + 1]
+                del tokens[idx:idx+2]
+                return val
+            except (ValueError, IndexError):
+                return None
+
+        # Parse -cpu
+        cpu_val = consume_arg("-cpu")
+        if cpu_val:
+            if cpu_val.strip().lower() == "host":
+                config[CPU_CONFIG] = "host"
+                config[SMP_PASSTHROUGH_CONFIG] = True
+            else:
+                config[CPU_CONFIG] = cpu_val
+                config[SMP_PASSTHROUGH_CONFIG] = False
+
+        # Parse -m
+        mem_val = consume_arg("-m")
+        if mem_val and mem_val.isdigit():
+            config[MEMORY_MB_CONFIG] = int(mem_val)
+
+        # Parse -machine
+        machine_val = consume_arg("-machine")
+        if machine_val:
+            if "=" in machine_val:
+                machine_type = machine_val.split(",")[0]
+            else:
+                machine_type = machine_val
+            config[MACHINE_TYPE_CONFIG] = machine_type
+
+        # Parse -accel
+        accel_val = consume_arg("-accel")
+        if accel_val and "kvm" in accel_val:
+            config[KVM_ACCEL_CONFIG] = True
+        else:
+            config[KVM_ACCEL_CONFIG] = False
+
+        # Parse -smp
+        smp_val = consume_arg("-smp")
+        if smp_val:
+            smp_parts = smp_val.split(",")
+            smp_dict = {}
+            for part in smp_parts:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    smp_dict[k.strip()] = int(v.strip())
+                else:
+                    smp_dict["cpus"] = int(part.strip())
+
+            if "sockets" in smp_dict or "cores" in smp_dict or "threads" in smp_dict:
+                config[TOPOLOGY_ENABLED_CONFIG] = True
+                config[SMP_SOCKETS_CONFIG] = smp_dict.get("sockets", 1)
+                config[SMP_CORES_CONFIG] = smp_dict.get("cores", 1)
+                config[SMP_THREADS_CONFIG] = smp_dict.get("threads", 1)
+                cpus = (config[SMP_SOCKETS_CONFIG] *
+                        config[SMP_CORES_CONFIG] *
+                        config[SMP_THREADS_CONFIG])
+                config[SMP_CPUS_CONFIG] = cpus
+            else:
+                config[TOPOLOGY_ENABLED_CONFIG] = False
+                config[SMP_CPUS_CONFIG] = smp_dict.get("cpus", 1)
+
+        self.app_context.update_config(config)
+
+        # Resto vai pro extra_args
+        self.app_context.update_config({"extra_args": " ".join(tokens)})
+        self.load_config_to_ui()
+
+    def qemu_reverse_parse_args(self):
+        config = self.app_context.config
+        args = []
+
+        cpu = config.get(CPU_CONFIG, "")
+        if cpu:
+            args += ["-cpu", cpu]
+
+        memory = config.get(MEMORY_MB_CONFIG, 1024)
+        args += ["-m", str(memory)]
+
+        machine = config.get(MACHINE_TYPE_CONFIG, "pc")
+        args += ["-machine", machine]
+
+        if config.get(KVM_ACCEL_CONFIG, False):
+            args += ["-accel", "kvm"]
+
+        if config.get(TOPOLOGY_ENABLED_CONFIG, False):
+            smp = "sockets={},cores={},threads={}".format(
+                config.get(SMP_SOCKETS_CONFIG, 1),
+                config.get(SMP_CORES_CONFIG, 1),
+                config.get(SMP_THREADS_CONFIG, 1)
+            )
+            args += ["-smp", smp]
+        else:
+            args += ["-smp", str(config.get(SMP_CPUS_CONFIG, 1))]
+
+        return args
+
+

@@ -7,9 +7,9 @@
     "smp_sockets": 1,
     "smp_cores": 1,
     "smp_threads": 1,
-    "architecture": "Architecture: x86_64",
-    "qemu_executable": "qemu-system-x86_64",
-    "custom_executable": "",
+    "architecture": "Architecture: i386",
+    "qemu_executable": "qemu-system-i386",
+    "custom_executable": "/home/luiz/winxp/qemu-3dfx/bin/qemu-system-i386",
     "drives": [
         {
             "id": "disk0",
@@ -68,16 +68,11 @@
             "format": "raw"
         }
     ],
-    "floppies": [
-        {
-            "unit": 0,
-            "file": "/home/luiz/win98/floppy/disks/abd4/fd4.ima"
-        }
-    ],
+    "floppies": [],
     "qemu_args": "-drive file=hdd/win98.qcow2,id=disk0,if=scsi,format=qcow2 \\\n-drive file=extras/disk.img,id=disk1,if=scsi,format=raw \\\n-drive file=cdrom/win98qi_v0.9.6_ALL.iso,id=disk2,if=none,format=raw \\\n-drive file=cdrom/softgpu-0.6.2024.40.iso,id=disk3,if=none,format=raw \\\n-drive file=cdrom/wrappers.iso,id=disk4,if=none,format=raw \\\n-drive file=cdrom/mesa9x-24.1.5.114-driver-win98.iso,id=disk5,if=none,format=raw \\\n-drive file=cdrom/Security9_enu_15.iso,id=disk6,if=none,format=raw \\\n-drive file=cdrom/vmaddons.iso,id=disk7,if=none,format=raw",
     "scsi_controller_needed": true,
     "virtio_controller_needed": false,
     "kvm_acceleration": true,
-    "machine_type": "q35",
-    "memory_mb": 10244
+    "machine_type": "pc-q35-10.0",
+    "memory_mb": 2048
 }
