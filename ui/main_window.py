@@ -9,9 +9,9 @@ from ui.pages.overview_page import OverviewPage
 from ui.pages.hardware_page import HardwarePage
 from ui.pages.storage_page import StoragePage
 from ui.styles.themes import get_dark_stylesheet, get_light_stylesheet
-from app.utils.qemu_helper import QemuHelper, QemuInfoCache
 import json
 import os
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -30,7 +30,7 @@ class MainWindow(QWidget):
         self._vm_state = {'theme': 'dark'}
         self.qemu_process = None
         self.recursion_prevent = False
-  
+
         self.setup_ui()
         self.apply_theme()
         self.load_vm_config_from_file()
@@ -68,7 +68,7 @@ class MainWindow(QWidget):
                 selected_bg="rgba(80, 92, 144, 0.3)",
                 hover_bg="#505c90"
             )
-            btn.clicked.connect(lambda checked, i=idx: self.pages.setCurrentIndex(i))
+            btn.clicked.connect(lambda checked=False, i=idx: self.pages.setCurrentIndex(i))
             self.sidebar_layout.addWidget(btn)
             self.buttons.append(btn)
 
@@ -81,7 +81,6 @@ class MainWindow(QWidget):
                 self.hardware_page = page
                 self.hardware_page.hardware_config_changed.connect(self.app_context.config_changed)
                 self.hardware_page.hardware_config_changed.connect(self.qemu_reverse_parse)
-                self.app_context.qemu_args_pasted.connect(self.app_context.qemu_args_pasted)
             elif text == "Storage":
                 page = StoragePage(self.app_context)
                 self.storage_page = page
@@ -93,7 +92,8 @@ class MainWindow(QWidget):
                 page = placeholder
 
             self.pages.addWidget(page)
-            self.app_context.qemu_args_pasted.connect(self.qemu_direct_parse)
+
+        self.app_context.qemu_args_pasted.connect(self.qemu_direct_parse)
 
         self.sidebar_layout.addStretch()
 
@@ -140,15 +140,12 @@ class MainWindow(QWidget):
         self.pages.currentChanged.connect(self.on_page_changed)
 
     def _config_changed(self):
-        self.app_context.is_modified()
         self.update_window_title()
 
     def _config_saved(self):
-        self.app_context.is_modified()
         self.update_window_title()
 
     def _config_loaded(self):
-        self.app_context.is_modified()
         self.update_window_title()
 
     def closeEvent(self, event):
@@ -250,17 +247,17 @@ class MainWindow(QWidget):
         finally:
             self.app_context.finish_loading()
             self.update_window_title()
-  
+
     def update_window_title(self):
         if not self.recursion_prevent:
             self.recursion_prevent = True
             base_title = "Frontend QEMU 3DFX"
-            title = "\u25CF " + base_title if self.app_context.is_modified() else base_title
+            title = "\u25CF " + base_title
             self.setWindowTitle(title)
             self.recursion_prevent = False
-  
+
     def qemu_direct_parse(self, cmdline: list[str]):
-        self.hardware_page.qemu_direct_parse(cmdline)
+        self.storage_page.qemu_direct_parse(cmdline)
         self.storage_page.qemu_direct_parse(cmdline)
 
     def qemu_reverse_parse(self):
@@ -268,4 +265,3 @@ class MainWindow(QWidget):
         args += self.hardware_page.qemu_reverse_parse_args()
         args += self.storage_page.qemu_reverse_parse_args()
         self.overview_page.update_qemu_args(args)
-

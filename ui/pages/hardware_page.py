@@ -434,7 +434,8 @@ class HardwarePage(QWidget):
             self.app_context.update_config(config_update)
 
         finally:
-            self._updating_cpu_ui = False
+            # Unblock signals
+            self._set_cpu_signals_blocked(False)
         
         self.hardware_config_changed.emit()
 
