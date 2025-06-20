@@ -450,80 +450,54 @@ class HardwarePage(QWidget):
         for widget in widgets:
             widget.blockSignals(blocked)
 
-    def qemu_direct_parse(self, cmdline_str):
-        tokens = self.app_context.split_shell_command(cmdline_str)
-        config = {}
+    def qemu_direct_parse(self, cmdline_str_or_tokens):
+        from shlex import split as shlex_split
 
-        def consume_arg(key):
-            try:
-                idx = tokens.index(key)
-                val = tokens[idx + 1]
-                del tokens[idx:idx+2]
-                return val
-            except (ValueError, IndexError):
-                return None
-
-        # Parse -cpu
-        cpu_val = consume_arg("-cpu")
-        if cpu_val:
-            if cpu_val.strip().lower() == "host":
-                config[CPU_CONFIG] = "host"
-                config[SMP_PASSTHROUGH_CONFIG] = True
-            else:
-                config[CPU_CONFIG] = cpu_val
-                config[SMP_PASSTHROUGH_CONFIG] = False
-
-        # Parse -m
-        mem_val = consume_arg("-m")
-        if mem_val and mem_val.isdigit():
-            config[MEMORY_MB_CONFIG] = int(mem_val)
-
-        # Parse -machine
-        machine_val = consume_arg("-machine")
-        if machine_val:
-            if "=" in machine_val:
-                machine_type = machine_val.split(",")[0]
-            else:
-                machine_type = machine_val
-            config[MACHINE_TYPE_CONFIG] = machine_type
-
-        # Parse -accel
-        accel_val = consume_arg("-accel")
-        if accel_val and "kvm" in accel_val:
-            config[KVM_ACCEL_CONFIG] = True
+        if isinstance(cmdline_str_or_tokens, str):
+            tokens = shlex_split(cmdline_str_or_tokens)
         else:
-            config[KVM_ACCEL_CONFIG] = False
+            tokens = list(cmdline_str_or_tokens)
 
-        # Parse -smp
-        smp_val = consume_arg("-smp")
-        if smp_val:
-            smp_parts = smp_val.split(",")
-            smp_dict = {}
-            for part in smp_parts:
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    smp_dict[k.strip()] = int(v.strip())
-                else:
-                    smp_dict["cpus"] = int(part.strip())
+        remaining = []
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
 
-            if "sockets" in smp_dict or "cores" in smp_dict or "threads" in smp_dict:
-                config[TOPOLOGY_ENABLED_CONFIG] = True
-                config[SMP_SOCKETS_CONFIG] = smp_dict.get("sockets", 1)
-                config[SMP_CORES_CONFIG] = smp_dict.get("cores", 1)
-                config[SMP_THREADS_CONFIG] = smp_dict.get("threads", 1)
-                cpus = (config[SMP_SOCKETS_CONFIG] *
-                        config[SMP_CORES_CONFIG] *
-                        config[SMP_THREADS_CONFIG])
-                config[SMP_CPUS_CONFIG] = cpus
+            if token == "-cpu" and i + 1 < len(tokens):
+                cpu = tokens[i + 1]
+                self.cpu_combo.setCurrentText(cpu)
+                self.app_context.update_config({CPU_CONFIG: cpu})
+                i += 2
+            elif token == "-m" and i + 1 < len(tokens):
+                mem = tokens[i + 1]
+                self.mem_combo.setCurrentText(mem)
+                self.app_context.update_config({MEMORY_MB_CONFIG: int(mem)})
+                i += 2
+            elif token == "-machine" and i + 1 < len(tokens):
+                machine = tokens[i + 1]
+                self.machine_combo.setCurrentText(machine)
+                self.app_context.update_config({MACHINE_TYPE_CONFIG: machine})
+                i += 2
+            elif token == "-accel" and i + 1 < len(tokens):
+                accel = tokens[i + 1]
+                self.kvm_accel_checkbox.setChecked("kvm" in accel.lower())
+                self.app_context.update_config({KVM_ACCEL_CONFIG: "kvm" in accel.lower()})
+                i += 2
+            elif token == "-smp" and i + 1 < len(tokens):
+                try:
+                    smp_val = int(tokens[i + 1])
+                    self.smp_cpu_spinbox.setValue(smp_val)
+                    self.app_context.update_config({SMP_CPUS_CONFIG: smp_val})
+                except ValueError:
+                    pass
+                i += 2
             else:
-                config[TOPOLOGY_ENABLED_CONFIG] = False
-                config[SMP_CPUS_CONFIG] = smp_dict.get("cpus", 1)
+                remaining.append(token)
+                i += 1
 
-        self.app_context.update_config(config)
+        print("[HardwarePage] Remaining tokens:", remaining)
+        return remaining
 
-        # Resto vai pro extra_args
-        self.app_context.update_config({"extra_args": " ".join(tokens)})
-        self.load_config_to_ui()
 
     def qemu_reverse_parse_args(self):
         config = self.app_context.config

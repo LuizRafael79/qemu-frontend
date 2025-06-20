@@ -9,6 +9,7 @@ import subprocess
 import shutil
 # Importe as novas classes do novo arquivo
 from app.utils.qemu_helper import QemuHelper, QemuInfoCache
+from app.context.app_context import AppContext
 
 class OverviewPage(QWidget):
     overview_config_changed = pyqtSignal()
@@ -16,7 +17,7 @@ class OverviewPage(QWidget):
 
     def __init__(self, app_context):
         super().__init__()
-        self.app_context = app_context
+        self.app_context = AppContext()
         # Use a nova classe de cache
         self.qemu_info_cache = QemuInfoCache()
 
@@ -77,6 +78,8 @@ class OverviewPage(QWidget):
         self.btn_clear.clicked.connect(self.on_clear_clicked)
         self.custom_path.textChanged.connect(self.on_custom_path_changed)
         self.btn_launch.clicked.connect(self.on_launch_clicked)
+        self.app_context.qemu_args_pasted.connect(self.update_qemu_args)
+
 
     def populate_qemu_binaries(self):
         found = []
@@ -105,6 +108,8 @@ class OverviewPage(QWidget):
         # Bloqueia sinais para evitar disparos em cascata durante o carregamento
         self.qemu_combo.blockSignals(True)
         self.custom_path.blockSignals(True)
+        self.qemuargs_output.blockSignals(True)
+        self.qemuextraargs_output.blockSignals(True)
 
         try:
             custom_exec = cfg.get("custom_executable", "")
@@ -128,14 +133,24 @@ class OverviewPage(QWidget):
 
                 # Atualiza com base na seleção do combo
                 if self.qemu_combo.currentIndex() >= 0:
-                   binary_path = self.app_context.qemu_binaries[self.qemu_combo.currentIndex()]
-                   self._update_active_binary(binary_path)
+                    binary_path = self.app_context.qemu_binaries[self.qemu_combo.currentIndex()]
+                    self._update_active_binary(binary_path)
                 else:
-                   self._update_active_binary(None) # Nenhum binário selecionado
+                    self._update_active_binary(None) # Nenhum binário selecionado
+
+            # Atualiza os campos de texto com os argumentos do config
+            qemu_args = cfg.get("qemu_args", "")
+            extra_args = cfg.get("extra_args", "")
+
+            self.qemuargs_output.setPlainText(qemu_args)
+            self.qemuextraargs_output.setPlainText(extra_args)
 
         finally:
             self.qemu_combo.blockSignals(False)
             self.custom_path.blockSignals(False)
+            self.qemuargs_output.blockSignals(False)
+            self.qemuextraargs_output.blockSignals(False)
+
 
     def _update_active_binary(self, binary_path):
         """
@@ -212,12 +227,27 @@ class OverviewPage(QWidget):
             self.console_output.append(f"Failed to launch QEMU: {e}")
 
     def update_qemu_args(self, args_list):
-        # ... (código igual ao seu original)
+        if not args_list:
+            args_list = []
+
+        # Formata os argumentos principais (qemu_args)
         formatted_command = " ".join(args_list)
         pretty_command = re.sub(r' -', ' \\\n-', formatted_command)
+
         self.qemuargs_output.blockSignals(True)
         self.qemuargs_output.setPlainText(pretty_command)
         self.qemuargs_output.blockSignals(False)
+
+        # Trata os extra_args salvos no config
+        extra_args = self.app_context.config.get("extra_args", [])
+        if extra_args:
+            extra_str = " \\\n".join(extra_args)
+        else:
+            extra_str = ""
+
+        self.qemuextraargs_output.blockSignals(True)
+        self.qemuextraargs_output.setPlainText(extra_str)
+        self.qemuextraargs_output.blockSignals(False)
 
     def _on_args_changed(self):
         # ... (código igual ao seu original)

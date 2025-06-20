@@ -214,59 +214,20 @@ class StoragePage(QWidget):
     def qemu_direct_parse(self, cmdline_str):
         tokens = self.app_context.split_shell_command(cmdline_str)
 
-        # Limpa widgets e estados antes
-        self._clear_all_widgets()
+        # Evita disparos de sinal ao popular UI
+        self.loading = True
+        self.clear_all_drives()
+        self.clear_all_floppies()
 
-        # Variáveis temporárias para config
-        cpu_model = None
-        smp_cpus = None
-        machine_type = None
-        memory_mb = None
-        kvm_accel = False
-
-        # Maps para storage
         drive_map = {}
         device_map = {}
-
-        # Guarda args que não são reconhecidos para extra_args
         extra_args = []
 
         i = 0
         while i < len(tokens):
             arg = tokens[i]
 
-            if arg == "-cpu" and i + 1 < len(tokens):
-                cpu_model = tokens[i + 1]
-                i += 2
-                continue
-
-            elif arg == "-smp" and i + 1 < len(tokens):
-                try:
-                    smp_cpus = int(tokens[i + 1].split(',')[0])
-                except Exception:
-                    smp_cpus = None
-                i += 2
-                continue
-
-            elif arg == "-machine" and i + 1 < len(tokens):
-                machine_type = tokens[i + 1].split(',')[0]
-                i += 2
-                continue
-
-            elif arg == "-m" and i + 1 < len(tokens):
-                try:
-                    memory_mb = int(tokens[i + 1])
-                except Exception:
-                    memory_mb = None
-                i += 2
-                continue
-
-            elif arg == "-accel" and i + 1 < len(tokens):
-                kvm_accel = tokens[i + 1].lower() == "kvm"
-                i += 2
-                continue
-
-            elif arg == "-drive" and i + 1 < len(tokens):
+            if arg == "-drive" and i + 1 < len(tokens):
                 drive_str = tokens[i + 1]
                 parts = drive_str.split(",")
                 info = {
@@ -331,33 +292,16 @@ class StoragePage(QWidget):
                     else:
                         device_map[drive_id] = {"media": "disk", "if": "unknown", "device_type": dev_type}
                 else:
-                    # -device sem drive=, deixa pro extra_args (ex: VGA, usb-tablet)
+                    # Sem drive=, passa pro extra_args (ex: VGA, usb-tablet)
                     extra_args.append(arg)
                     extra_args.append(tokens[i + 1])
                 i += 2
                 continue
 
             else:
-                # Argumentos não parseados ficam para extra_args
                 extra_args.append(arg)
                 i += 1
 
-        # Atualiza o config app_context para UI
-        config_update = {}
-
-        if cpu_model is not None:
-            config_update["cpu"] = cpu_model
-        if smp_cpus is not None:
-            config_update["smp_cpus"] = smp_cpus
-        if machine_type is not None:
-            config_update["machine_type"] = machine_type
-        if memory_mb is not None:
-            config_update["memory_mb"] = memory_mb
-        config_update["kvm_acceleration"] = kvm_accel
-
-        self.app_context.update_config(config_update)
-
-        # Flags para controllers
         scsi_needed = False
         virtio_needed = False
 
@@ -386,71 +330,41 @@ class StoragePage(QWidget):
                     "format": info.get("format", "raw"),
                 })
 
+        self.loading = False
+        self._on_storage_changed()
+
         self.app_context.update_config({
             "scsi_controller_needed": scsi_needed,
             "virtio_controller_needed": virtio_needed,
-            "extra_args": extra_args  # Salva extra args para UI extra_args
+            "extra_args": extra_args
         })
 
-
     def qemu_reverse_parse_args(self):
-        config = self.app_context.config
-
         args = []
 
-        # CPU
-        cpu = config.get("cpu", "default")
-        if cpu:
-            args += ["-cpu", cpu]
+        for widget in self.drive_widgets:
+            data = widget.get_drive_data()
+            if not data:
+                continue
+            parts = [
+                f"file={data['file']}",
+                f"id={data['id']}",
+                f"if={data['if']}"
+            ]
+            if data['media'] != 'cdrom':
+                parts.append(f"format={data.get('format', 'raw')}")
+            args.append("-drive")
+            args.append(",".join(parts))
 
-        # SMP
-        smp = config.get("smp_cpus", 1)
-        if smp and smp > 1:
-            args += ["-smp", str(smp)]
-
-        # Machine
-        machine = config.get("machine_type", "pc")
-        if machine:
-            args += ["-machine", machine]
-
-        # Memory
-        mem = config.get("memory_mb", 1024)
-        if mem:
-            args += ["-m", str(mem)]
-
-        # KVM acceleration
-        if config.get("kvm_acceleration", False):
-            args += ["-accel", "kvm"]
-
-        # Drives e devices (storage)
-        drives = getattr(self, "drives", [])
-        for drive in drives:
-            drive_arg = f'file={drive["file"]},id={drive["id"]},if={drive["if"]},format={drive["format"]}'
-            # readonly? adiciona se tiver
-            if drive.get("readonly", False):
-                drive_arg += ",readonly=on"
-            if drive.get("unit") is not None:
-                drive_arg += f",unit={drive['unit']}"
-            if drive.get("media") is not None:
-                drive_arg += f",media={drive['media']}"
-            args += ["-drive", drive_arg]
-
-        # Devices associados aos drives
-        devices = getattr(self, "devices", {})  # seu map drive_id -> device info
-        for did, dev_info in devices.items():
-            device_type = dev_info.get("device_type", None)
-            if device_type:
-                device_arg = device_type
-                if "drive" not in device_arg:
-                    device_arg += f",drive={did}"
-                args += ["-device", device_arg]
-
-        # Extra args não mapeados na UI
-        extra_args = config.get("extra_args", [])
-        if extra_args:
-            args += extra_args
+        for widget in self.floppy_widgets:
+            data = widget.get_floppy_data()
+            if not data:
+                continue
+            args.append("-drive")
+            args.append(f"file={data['file']},if=floppy,unit={data['unit']}")
 
         return args
+
   
     def args_list_to_multiline_str(self, args_list):
         lines = []
