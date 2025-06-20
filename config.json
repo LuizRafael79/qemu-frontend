@@ -11,10 +11,10 @@
     "qemu_executable": "qemu-system-i386",
     "custom_executable": "",
     "machine_type": "pc-q35-9.2",
-    "qemu_args": "",
+    "qemu_args": "-drive file=hdd/win98.qcow2,id=disk0,if=scsi,format=qcow2 -drive file=extras/disk.img,id=disk1,if=scsi,format=raw -drive file=cdrom/win98qi_v0.9.6_ALL.iso,id=disk2,if=none -drive file=cdrom/softgpu-0.6.2024.40.iso,id=disk3,if=none -drive file=cdrom/wrappers.iso,id=disk4,if=none -drive file=cdrom/mesa9x-24.1.5.114-driver-win98.iso,id=disk5,if=none -drive file=cdrom/Security9_enu_15.iso,id=disk6,if=none -drive file=cdrom/vmaddons.iso,id=disk7,if=none -drive file=floppy/disks/abd4/fd4.ima,if=floppy,unit=0 -cpu host -m 2048 -machine pc-q35-9.2 -smp 4",
     "extra_args": [],
     "memory_mb": 2048,
-    "kvm_acceleration": true,
+    "kvm_acceleration": false,
     "drives": [
         {
             "id": "disk0",
