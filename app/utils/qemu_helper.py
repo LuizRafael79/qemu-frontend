@@ -71,7 +71,7 @@ class QemuHelper:
             return match.group(1)
             
         # 2. Se falhar, tenta extrair da saída da versão
-        version_string = self.get_version()
+        version_string = self.get_info("version")
         match = re.search(r'\(qemu-([a-zA-Z0-9_-]+)', version_string)
         if match:
             return match.group(1).replace('_', '-') # ex: qemu-x86_64 -> x86_64
@@ -80,6 +80,43 @@ class QemuHelper:
 
     def get_info(self, key):
         return self.data.get(key, "")
+
+    def get_cpu_list(self):
+        """ Analisa a saída de 'cpu_help' e retorna uma lista de nomes de CPU. """
+        cpu_output = self.get_info("cpu_help")
+        cpus = []
+        parsing = False
+        for line in cpu_output.splitlines():
+            line = line.strip()
+            if line.startswith("Available CPUs:"):
+                parsing = True
+                continue
+            if parsing:
+                if not line:
+                    break
+                parts = line.split()
+                if parts:
+                    cpus.append(parts[0])
+        
+        # Adiciona 'host' se a arquitetura for a mesma do sistema
+        # Esta é uma simplificação; uma verificação real pode ser mais complexa
+        if self.get_info("architecture") in ["x86_64", "i386"]:
+             if "host" not in cpus:
+                cpus.insert(0, "host")
+
+        return cpus if cpus else ["default"]
+
+    def get_machine_list(self):
+        """ Analisa a saída de 'machine_help' e retorna uma lista de tipos de máquina. """
+        machine_output = self.get_info("machine_help")
+        machines = []
+        for line in machine_output.splitlines():
+            line = line.strip()
+            if line and not line.startswith("Supported machines are:"):
+                parts = line.split()
+                if parts and parts[0] not in machines:
+                    machines.append(parts[0])
+        return machines if machines else ["pc", "q35", "isapc"]
 
 class QemuInfoCache:
     """

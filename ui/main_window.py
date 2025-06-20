@@ -88,7 +88,7 @@ class MainWindow(QWidget):
                 self.storage_page.storage_config_changed.connect(self.qemu_reverse_parse)
             else:
                 placeholder = QLabel(f"Page: {text}")
-                placeholder.setAlignment(Qt.AlignCenter)
+                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 page = placeholder
 
             self.pages.addWidget(page)
@@ -173,7 +173,7 @@ class MainWindow(QWidget):
             btn.setChecked(i == index)
 
         page = self.pages.currentWidget()
-        if hasattr(page, "on_page_changed"):
+        if page and hasattr(page, "on_page_changed"):
             page.on_page_changed()
 
     def apply_theme(self):
