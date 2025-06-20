@@ -224,7 +224,6 @@ class MainWindow(QWidget):
         if not os.path.exists(self.config_file):
             self.app_context.start_loading()
             self.app_context.finish_loading()
-            self.update_window_title()
             return
 
         try:
@@ -233,22 +232,21 @@ class MainWindow(QWidget):
                 config = json.load(f)
 
             self.app_context.set_config(config)
+
             self.overview_page.load_config_to_ui()
             self.hardware_page.load_cpu_list()
             self.hardware_page.load_config_to_ui()
             self.storage_page.load_config_to_ui()
-
-            qemu_args_str = self.app_context.config.get("qemu_args", "")
-            tokens = self.app_context.split_shell_command(qemu_args_str)
-            self.app_context.qemu_args_pasted.emit(tokens)
+            
             print("Configuração carregada com sucesso!")
 
         except Exception as e:
             print(f"Erro ao carregar configuração: {e}")
-        finally:
-            self.app_context.finish_loading()
-            self.update_window_title()
 
+        finally:           
+            self.app_context.finish_loading()
+            self.app_context.config_loaded.emit()
+            
     def update_window_title(self):
         if not self.recursion_prevent:
             self.recursion_prevent = True

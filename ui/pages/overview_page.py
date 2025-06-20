@@ -21,13 +21,13 @@ class OverviewPage(QWidget):
         # Use a nova classe de cache
         self.qemu_info_cache = QemuInfoCache()
 
-        #self.app_context.config_changed.connect(self.load_config_to_ui)
+        self._internal_text_change = False
+        
         self.app_context.qemu_args_pasted.connect(self.update_qemu_args)
 
         self.setup_ui()
         self.populate_qemu_binaries()
-        self.bind_signals()
-        self.load_config_to_ui()
+        self.bind_signals()        
 
     def setup_ui(self):
         # ... seu código de setup_ui permanece o mesmo ...
@@ -81,6 +81,8 @@ class OverviewPage(QWidget):
         self.btn_clear.clicked.connect(self.on_clear_clicked)
         self.custom_path.textChanged.connect(self.on_custom_path_changed)
         self.btn_launch.clicked.connect(self.on_launch_clicked)
+        self.qemuargs_output.textChanged.connect(self._on_args_changed)
+        self.qemuextraargs_output.textChanged.connect(self._on_args_changed)
 
     def populate_qemu_binaries(self):
         found = []
@@ -103,12 +105,14 @@ class OverviewPage(QWidget):
     def load_config_to_ui(self):
         cfg = self.app_context.config
         if not cfg:
-            return
+            return        
 
+        self._internal_text_change = True
         self.qemu_combo.blockSignals(True)
         self.custom_path.blockSignals(True)
         self.qemuargs_output.blockSignals(True)
         self.qemuextraargs_output.blockSignals(True)
+        self._internal_text_change = False
 
         try:
             custom_exec = cfg.get("custom_executable", "")
@@ -226,47 +230,52 @@ class OverviewPage(QWidget):
             self.console_output.append(f"Failed to launch QEMU: {e}")
 
     def update_qemu_args(self, args_list):
-        with self.app_context.signal_blocker():
-            if not args_list:
-                args_list = []
+        self._internal_text_change = True
+        try:
+            with self.app_context.signal_blocker():
+                if not args_list:
+                    args_list = []
 
-            recognized_flags = {"-cpu", "-m", "-smp", "-machine", "-accel", "-drive", "-device", "-netdev", "-bios"}
-            parsed_main = []
-            parsed_extra = []
+                recognized_flags = {"-cpu", "-m", "-smp", "-machine", "-accel", "-drive", "-device", "-netdev", "-bios"}
+                parsed_main = []
+                parsed_extra = []
 
-            i = 0
-            while i < len(args_list):
-                arg = args_list[i]
-                if arg in recognized_flags:
-                    parsed_main.append(arg)
-                    if i + 1 < len(args_list) and not args_list[i + 1].startswith("-"):
-                        parsed_main.append(args_list[i + 1])
-                        i += 1
-                else:
-                    parsed_extra.append(arg)
-                i += 1
+                i = 0
+                while i < len(args_list):
+                    arg = args_list[i]
+                    if arg in recognized_flags:
+                        parsed_main.append(arg)
+                        if i + 1 < len(args_list) and not args_list[i + 1].startswith("-"):
+                            parsed_main.append(args_list[i + 1])
+                            i += 1
+                    else:
+                        parsed_extra.append(arg)
+                    i += 1
 
-            self.app_context.update_config({
-                "qemu_args": " ".join(parsed_main),
-                "extra_args": parsed_extra
-            })
+                self.app_context.update_config({
+                    "qemu_args": " ".join(parsed_main),
+                    "extra_args": parsed_extra
+                })
 
-            formatted_command = " ".join(parsed_main)
-            pretty_command = re.sub(r' -', ' \\\n-', formatted_command)
+                formatted_command = " ".join(parsed_main)
+                pretty_command = re.sub(r' -', ' \\\n-', formatted_command)
 
-            self.qemuargs_output.blockSignals(True)
-            self.qemuargs_output.setPlainText(pretty_command)
-            self.qemuargs_output.blockSignals(False)
-            self.qemuargs_output.repaint()
-            self.qemuargs_output.update()
+                self.qemuargs_output.blockSignals(True)
+                self.qemuargs_output.setPlainText(pretty_command)
+                self.qemuargs_output.blockSignals(False)
+                self.qemuargs_output.repaint()
+                self.qemuargs_output.update()
 
-            extra_str = " \\\n".join(parsed_extra) if parsed_extra else ""
+                extra_str = " \\\n".join(parsed_extra) if parsed_extra else ""
 
-            self.qemuextraargs_output.blockSignals(True)
-            self.qemuextraargs_output.setPlainText(extra_str)            
-            self.qemuextraargs_output.blockSignals(False)
-            self.qemuextraargs_output.repaint()
-            self.qemuextraargs_output.update()
+                self.qemuextraargs_output.blockSignals(True)
+                self.qemuextraargs_output.setPlainText(extra_str)            
+                self.qemuextraargs_output.blockSignals(False)
+                self.qemuextraargs_output.repaint()
+                self.qemuextraargs_output.update()
+        finally:
+            self._internal_text_change = False
+    
 
     def _on_args_changed(self):
         raw = self.qemuargs_output.toPlainText().strip()
