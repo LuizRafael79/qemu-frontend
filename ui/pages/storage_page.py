@@ -181,7 +181,7 @@ class StoragePage(QWidget):
 
     def __init__(self, app_context: AppContext):
         super().__init__()
-        self.app_context = app_context
+        self.app_context = AppContext
         self.drive_widgets = []
         self.floppy_widgets = []
         self.drive_count = 0
@@ -361,6 +361,7 @@ class StoragePage(QWidget):
             "virtio_controller_needed": virtio_needed,
             "extra_args": extra_args
         })
+        return extra_args
 
     def qemu_reverse_parse_args(self):
         args = []
@@ -409,7 +410,7 @@ class StoragePage(QWidget):
             args.append("-drive")
             args.append(f"file={data['file']},if=floppy,unit={data['unit']}")
 
-        return args
+        return args        
   
     def args_list_to_multiline_str(self, args_list):
         lines = []

@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QGroupBox, QFormLayout,
-    QComboBox, QLineEdit, QPushButton, QHBoxLayout, QTextEdit, QTabWidget, QFileDialog
+    QComboBox, QLineEdit, QPushButton, QHBoxLayout, QTextEdit, 
+    QTabWidget, QFileDialog, QRadioButton
 )
 from PyQt5.QtCore import pyqtSignal
 import os
@@ -68,12 +69,12 @@ class OverviewPage(QWidget):
         self.qemuargs_output = QTextEdit()
         self.qemuargs_output.setReadOnly(False)
         self.qemuextraargs_output = QTextEdit()
-        self.qemuextraargs_output.setReadOnly(False)
+        self.qemuextraargs_output.setReadOnly(True)
         self.console_output = QTextEdit()
         self.console_output.setReadOnly(True)
         self.mesa_output = QTextEdit()
         self.mesa_output.setReadOnly(True)
-
+        
         self.output_tabs.addTab(self.qemuargs_output, "Qemu Args")
         self.output_tabs.addTab(self.qemuextraargs_output, "Extra Args")
         self.output_tabs.addTab(self.console_output, "Console Output")
@@ -222,7 +223,10 @@ class OverviewPage(QWidget):
                 if not args_list:
                     args_list = []
 
-                recognized_flags = {"-cpu", "-m", "-smp", "-machine", "-accel", "-drive", "-device", "-netdev", "-bios"}
+                recognized_flags = {
+                    "-cpu", "-m", "-smp", "-machine", "-accel", "-k", "-M",
+                    "-usb", "-rtc", "-audiodev", "-display", "-nodefaults", "-boot"
+                }
                 parsed_main = []
                 parsed_extra = []
 
@@ -257,13 +261,37 @@ class OverviewPage(QWidget):
     def _on_args_changed(self):
         if self._internal_text_change:
             return
+
         raw = self.qemuargs_output.toPlainText().strip()
-        if not raw:
-            return
+        extra_raw = self.qemuextraargs_output.toPlainText().strip()
+
+        args = []
+
         try:
-            cmd_clean = raw.replace("\\\n", " ").replace("\n", " ")
-            args = shlex.split(cmd_clean)
+            # 1. Se houver texto em qemuargs, processa
+            if raw:
+                cmd_clean = raw.replace("\\\n", " ").replace("\n", " ")
+                args += shlex.split(cmd_clean)
+
+            # 2. Se houver texto em extra_args, processa também
+            if extra_raw:
+                args += shlex.split(extra_raw)
+
             self.app_context.qemu_args_pasted.emit(args)
+
+            # 3. Se nada foi passado (tudo vazio), limpa o config
+            if not args:
+                self.app_context.update_config({
+                    "qemu_args": [],
+                    "extra_args": [],
+                    "drives": [],
+                    "floppies": [],
+                    "architecture": "",
+                    "qemu_executable": "",
+                    "custom_executable": ""
+                })
+            self.app_context.config_changed.emit()
+
         except Exception as e:
             print(f"Erro ao fazer parse da linha de comando: {e}")
 
