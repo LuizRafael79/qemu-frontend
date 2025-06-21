@@ -271,32 +271,34 @@ class StoragePage(QWidget):
                     drive_id = m.group(1)
                     dev_type = dev_str.lower().split(',')[0].strip()
 
-                    if dev_type == "ide-cd":
-                        device_map[drive_id] = {"media": "cdrom", "if": "ide", "device_type": "ide-cd"}
-                    elif dev_type == "ide-hd":
-                        device_map[drive_id] = {"media": "disk", "if": "ide", "device_type": "ide-hd"}
-                    elif dev_type == "scsi-cd":
-                        device_map[drive_id] = {"media": "cdrom", "if": "scsi", "device_type": "scsi-cd"}
-                    elif dev_type == "scsi-hd":
-                        device_map[drive_id] = {"media": "disk", "if": "scsi", "device_type": "scsi-hd"}
-                    elif dev_type == "sd-cd":
-                        device_map[drive_id] = {"media": "cdrom", "if": "sd", "device_type": "sd-cd"}
-                    elif dev_type == "sd-hd":
-                        device_map[drive_id] = {"media": "disk", "if": "sd", "device_type": "sd-hd"}
-                    elif dev_type == "mtd-hd":
-                        device_map[drive_id] = {"media": "disk", "if": "mtd", "device_type": "mtd-hd"}
-                    elif dev_type == "mtd-cd":
-                        device_map[drive_id] = {"media": "cdrom", "if": "mtd", "device_type": "mtd-cd"}
-                    elif dev_type in ("virtio-blk-pci", "virtio-blk"):
-                        device_map[drive_id] = {"media": "disk", "if": "virtio", "device_type": "virtio-blk-pci"}
-                    else:
-                        device_map[drive_id] = {"media": "disk", "if": "unknown", "device_type": dev_type}
+                    # Novo bloco genérico
+                    interface = "none"
+                    media = "disk"
+
+                    if "cd" in dev_type:
+                        media = "cdrom"
+                    if "ide" in dev_type:
+                        interface = "ide"
+                    elif "scsi" in dev_type:
+                        interface = "scsi"
+                    elif "virtio" in dev_type:
+                        interface = "virtio"
+                    elif "sd" in dev_type:
+                        interface = "sd"
+                    elif "mtd" in dev_type:
+                        interface = "mtd"
+
+                    device_map[drive_id] = {
+                        "media": media,
+                        "if": interface,
+                        "device_type": dev_type
+                    }
                 else:
-                    # Sem drive=, passa pro extra_args (ex: VGA, usb-tablet)
                     extra_args.append(arg)
                     extra_args.append(tokens[i + 1])
                 i += 2
                 continue
+
 
             else:
                 extra_args.append(arg)
@@ -309,7 +311,7 @@ class StoragePage(QWidget):
             dev_info = device_map.get(did, {})
 
             media = dev_info.get("media", info.get("media", "disk"))
-            interface = dev_info.get("if", info.get("if", "none"))
+            interface = dev_info.get("if") or "none"
 
             if interface == "scsi":
                 scsi_needed = True
@@ -322,12 +324,23 @@ class StoragePage(QWidget):
                     "file": info.get("file", "")
                 })
             else:
+                file = info.get("file", "")
+                ext = file.split('.')[-1].lower() if '.' in file else ''
+                fmt = info.get("format", "raw")
+
+                if media == "cdrom":
+                    fmt = "raw"
+                elif ext == "qcow2":
+                    fmt = "qcow2"
+                else:
+                    fmt = "raw"
+
                 self.add_drive({
-                    "file": info.get("file", ""),
+                    "file": file,
                     "id": did,
                     "if": interface,
                     "media": media,
-                    "format": info.get("format", "raw"),
+                    "format": fmt,
                 })
 
         self.loading = False
@@ -342,19 +355,42 @@ class StoragePage(QWidget):
     def qemu_reverse_parse_args(self):
         args = []
 
-        for widget in self.drive_widgets:
+        for index, widget in enumerate(self.drive_widgets):
             data = widget.get_drive_data()
             if not data:
                 continue
+
+            file = data['file']
+            drive_id = data['id']
+            interface = data['if']
+            media = data['media']
+            ext = file.split('.')[-1].lower() if '.' in file else ''
+
+            # Detectar formato
+            if media == 'cdrom':
+                fmt = 'raw'  # CD-ROMs geralmente são .iso -> raw
+            elif ext == 'qcow2':
+                fmt = 'qcow2'
+            else:
+                fmt = 'raw'
+
+            # Monta -drive
             parts = [
-                f"file={data['file']}",
-                f"id={data['id']}",
-                f"if={data['if']}"
+                f"file={file}",
+                f"id={drive_id}",
+                f"if=none",  # Sempre "none", interface vai no -device
+                f"format={fmt}"
             ]
-            if data['media'] != 'cdrom':
-                parts.append(f"format={data.get('format', 'raw')}")
+            if media == 'cdrom':
+                parts.append("media=cdrom")
+
             args.append("-drive")
             args.append(",".join(parts))
+
+            # Monta -device correspondente
+            dev_type = f"{interface}-cd" if media == "cdrom" else f"{interface}-hd"
+            args.append("-device")
+            args.append(f"{dev_type},drive={drive_id}")
 
         for widget in self.floppy_widgets:
             data = widget.get_floppy_data()
@@ -364,7 +400,6 @@ class StoragePage(QWidget):
             args.append(f"file={data['file']},if=floppy,unit={data['unit']}")
 
         return args
-
   
     def args_list_to_multiline_str(self, args_list):
         lines = []

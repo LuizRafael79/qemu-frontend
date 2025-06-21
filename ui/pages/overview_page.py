@@ -8,7 +8,7 @@ import re
 import subprocess
 import shutil
 # Importe as novas classes do novo arquivo
-from app.utils.qemu_helper import QemuHelper, QemuInfoCache
+from app.utils.qemu_helper import QemuInfoCache
 from app.context.app_context import AppContext
 
 class OverviewPage(QWidget):
@@ -17,7 +17,7 @@ class OverviewPage(QWidget):
 
     def __init__(self, app_context):
         super().__init__()
-        self.app_context = app_context
+        self.app_context = AppContext()
         # Use a nova classe de cache
         self.qemu_info_cache = QemuInfoCache()
 
@@ -280,8 +280,8 @@ class OverviewPage(QWidget):
     def _on_args_changed(self):
         raw = self.qemuargs_output.toPlainText().strip()
         if not raw:
-            return
-
+            self.storage_page.clear_all_drives()
+            self.storage_page.clear_all_floppies()
         try:
             import shlex
             cmd_clean = raw.replace("\\\n", " ").replace("\n", " ")
