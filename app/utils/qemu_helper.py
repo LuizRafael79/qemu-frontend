@@ -50,9 +50,11 @@ class QemuHelper:
 
     def _generate_cache(self):
         print(f"Gerando cache de informações para {os.path.basename(self.qemu_path)}...")
+        version_output = self._run_qemu_command(["--version"])
+        architecture = self._extract_architecture(version_output)
         cache = {
-            "version": self._run_qemu_command(["--version"]),
-            "architecture": self._extract_architecture(),
+            "version": version_output,
+            "architecture": architecture,
             "cpu_help": self._run_qemu_command(["-cpu", "help"]),
             "machine_help": self._run_qemu_command(["-machine", "help"])
         }
@@ -63,19 +65,24 @@ class QemuHelper:
             print(f"Erro ao salvar cache QEMU em {self.cache_file}: {e}")
         return cache
 
-    def _extract_architecture(self):
-        """ Extrai a arquitetura do nome do arquivo ou da saída de --version. """
-        # 1. Tenta extrair do nome do arquivo (mais confiável)
+
+    def _extract_architecture(self, version_string):
+        # 1. tenta pela linha featuring qemu-...
+        match = re.search(r'featuring qemu-([a-zA-Z0-9]+)@([^-\s]+)', version_string)
+        if match:
+            feature, git_hash = match.groups()
+            return f"Official Qemu {feature} - GIT HEAD -> @{git_hash}-"
+
+        # 2. tenta extrair do nome do binário
         match = re.search(r'qemu-system-([a-zA-Z0-9_]+)', os.path.basename(self.qemu_path))
         if match:
             return match.group(1)
-            
-        # 2. Se falhar, tenta extrair da saída da versão
-        version_string = self.get_info("version")
+
+        # 3. fallback padrão
         match = re.search(r'\(qemu-([a-zA-Z0-9_-]+)', version_string)
         if match:
-            return match.group(1).replace('_', '-') # ex: qemu-x86_64 -> x86_64
-            
+            return match.group(1).replace('_', '-')
+
         return "Unknown"
 
     def get_info(self, key):
@@ -139,4 +146,4 @@ class QemuInfoCache:
         helper = self._get_helper(binary_path)
         if helper:
             return helper.get_info("architecture")
-        return "Invalid or not found"
+        return "Invalid or not found"    

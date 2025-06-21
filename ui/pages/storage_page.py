@@ -181,7 +181,7 @@ class StoragePage(QWidget):
 
     def __init__(self, app_context: AppContext):
         super().__init__()
-        self.app_context = AppContext
+        self.app_context = app_context
         self.drive_widgets = []
         self.floppy_widgets = []
         self.drive_count = 0

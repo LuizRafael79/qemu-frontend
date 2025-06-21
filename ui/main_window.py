@@ -19,6 +19,7 @@ class MainWindow(QWidget):
         self.resize(900, 600)
 
         self.app_context = AppContext()
+        self.hardware_page = HardwarePage(self.app_context)
         self.config_file = "config.json"
         self.qemu_process = None
         self._vm_state = {"theme": "dark"}

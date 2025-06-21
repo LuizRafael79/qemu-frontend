@@ -10,9 +10,10 @@ import subprocess
 import shutil
 import shlex
 
+import app
+from app.context import app_context
 from app.utils.qemu_helper import QemuInfoCache
 from app.context.app_context import AppContext
-
 
 class OverviewPage(QWidget):
     overview_config_changed = pyqtSignal()
@@ -94,20 +95,19 @@ class OverviewPage(QWidget):
         self.qemuextraargs_output.textChanged.connect(self._on_args_changed)
 
     def populate_qemu_binaries(self):
-        found = []
+        self.qemu_info_cache._cache.clear()  # Limpa o cache anterior se quiser forçar reload
         for path in os.environ.get("PATH", "").split(os.pathsep):
             if os.path.isdir(path):
                 for f in os.listdir(path):
                     if f.startswith("qemu-system-"):
                         full_path = shutil.which(f)
-                        if full_path and full_path not in found:
-                            found.append(full_path)
-        found = sorted(found)
-        self.app_context.qemu_binaries = found
+                        if full_path:
+                            self.qemu_info_cache._get_helper(full_path)  # Instancia e armazena no cache
 
+        all_binaries = list(self.qemu_info_cache._cache.keys())
         self.qemu_combo.blockSignals(True)
         self.qemu_combo.clear()
-        self.qemu_combo.addItems([os.path.basename(p) for p in found])
+        self.qemu_combo.addItems([os.path.basename(p) for p in all_binaries])
         self.qemu_combo.blockSignals(False)
 
     def load_config_to_ui(self):
@@ -138,7 +138,7 @@ class OverviewPage(QWidget):
                     self.qemu_combo.setCurrentIndex(0)
 
                 if self.qemu_combo.currentIndex() >= 0:
-                    binary_path = self.app_context.qemu_binaries[self.qemu_combo.currentIndex()]
+                    binary_path = list(self.qemu_info_cache._cache.keys())[self.qemu_combo.currentIndex()]
                     self._update_active_binary(binary_path)
                 else:
                     self._update_active_binary(None)
@@ -179,9 +179,12 @@ class OverviewPage(QWidget):
             self.overview_config_changed.emit()
 
     def on_qemu_combo_changed(self, index):
-        if 0 <= index < len(self.app_context.qemu_binaries):
-            bin_path = self.app_context.qemu_binaries[index]
+        if 0 <= index < len(self.qemu_info_cache._cache.keys()):
+            bin_path = list(self.qemu_info_cache._cache.keys())[index]
             self._update_active_binary(bin_path)
+            hardware_page = self.app_context.get_page("hardware")
+            if hardware_page:
+                hardware_page.update_qemu_helper()
 
     def on_custom_path_changed(self, text):
         text = text.strip()
@@ -201,9 +204,11 @@ class OverviewPage(QWidget):
         self.custom_path.clear()
 
     def on_launch_clicked(self):
-        bin_path = self.custom_path.text().strip()
+        binary_list = list(self.qemu_info_cache._cache.keys())
+        index = self.qemu_combo.currentIndex()
+        bin_path = binary_list[index] if 0 <= index < len(binary_list) else ""
         if not bin_path and self.qemu_combo.currentIndex() >= 0:
-            bin_path = self.app_context.qemu_binaries[self.qemu_combo.currentIndex()]
+            bin_path = list(self.qemu_info_cache._cache.keys())[self.qemu_combo.currentIndex()]
         if not bin_path:
             self.console_output.append("No QEMU binary selected.")
             return

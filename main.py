@@ -8,9 +8,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 if __name__ == "__main__":
-    from ui.main_window import MainWindow
-    from app.context.app_context import AppContext
-    from app.utils.qemu_helper import QemuHelper, QemuInfoCache 
+    from ui.main_window import MainWindow 
 
     app = QApplication(sys.argv)
     window = MainWindow()

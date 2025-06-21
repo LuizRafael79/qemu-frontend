@@ -44,14 +44,23 @@ class HardwarePage(QWidget):
         self.app_context = app_context
         self.qemu_helper: Optional[QemuHelper] = None
         self.host_cpu_count = multiprocessing.cpu_count()
+        self._loading_config = False
 
         self._setup_ui()
         self.bind_signals()
         self.hardware_config_changed.connect(self.app_context.config_changed.emit)
-        self.update_qemu_helper()
-        self.load_cpu_list()
-        self.load_machine_list()
+        qemu_exec = self.app_context.config.get("qemu_executable", "").strip()
+
+        # Tenta buscar o helper do cache, sem reexecutar QEMU
+        if qemu_exec:
+            helper = self.app_context.qemu_info_cache._get_helper(qemu_exec)
+            if helper:
+                self.qemu_helper = helper
+                self.load_cpu_list()
+                self.load_machine_list()
+                # Só depois carrega config pra UI
         self.load_config_to_ui()
+
 
     # === UI Setup ===
 
@@ -237,48 +246,67 @@ class HardwarePage(QWidget):
             return
         self._updating_cpu_ui = True
         try:
-            is_host_cpu = self.cpu_combo.currentText() == HOST_CPU
+            current_cpu = self.cpu_combo.currentText()
             passthrough_enabled = self.smp_passthrough_checkbox.isChecked()
             topology_enabled = self.topology_checkbox.isChecked()
 
+            # Apenas mostra checkbox de passthrough se cpu for "host" ou "max"
+            is_host_cpu = current_cpu in ("host", "max")
             self.smp_passthrough_checkbox.setVisible(is_host_cpu)
-            self.topology_group.setVisible(topology_enabled)
 
-            if is_host_cpu and passthrough_enabled:
+            # Se não for cpu especial, força checkbox passthrough desativada e invisível
+            if not is_host_cpu and passthrough_enabled:
+                # Se o usuário mudou para cpu não-host mas checkbox estava marcado, limpa ela
+                self.smp_passthrough_checkbox.setChecked(False)
+                passthrough_enabled = False
+
+            # Topology só pode estar habilitada se passthrough não estiver ativo
+            if passthrough_enabled:
+                # Quando passthrough está ativo, topologia é desabilitada e desmarcada
+                self.topology_checkbox.setChecked(False)
                 self.topology_checkbox.setEnabled(False)
-                if topology_enabled:
-                    self.topology_checkbox.setChecked(False)
-                    topology_enabled = False
+                self.topology_group.setVisible(False)
+                topology_enabled = False
             else:
+                # Quando passthrough não está ativo, topologia fica habilitada e visível de acordo com checkbox
                 self.topology_checkbox.setEnabled(True)
+                self.topology_group.setVisible(topology_enabled)
 
+            # vCPU spinbox só habilitado se topologia NÃO estiver ativada
             self.smp_cpu_spinbox.setEnabled(not topology_enabled)
 
+            # Calcula o valor de smp_cpus com base na topologia ou spinbox ou passthrough
             smp_cpus = 0
             if topology_enabled:
                 sockets = self.smp_sockets_spinbox.value()
                 cores = self.smp_cores_spinbox.value()
                 threads = self.smp_threads_spinbox.value()
                 smp_cpus = sockets * cores * threads
+                # Sincroniza spinbox para refletir a topologia
                 if self.smp_cpu_spinbox.value() != smp_cpus:
                     self.smp_cpu_spinbox.blockSignals(True)
                     self.smp_cpu_spinbox.setValue(smp_cpus)
                     self.smp_cpu_spinbox.blockSignals(False)
-            elif is_host_cpu and passthrough_enabled:
+            elif passthrough_enabled:
+                # Se passthrough ativado, geralmente usa metade das CPUs do host, no mínimo 1
                 smp_cpus = max(1, self.host_cpu_count // 2)
                 if self.smp_cpu_spinbox.value() != smp_cpus:
                     self.smp_cpu_spinbox.blockSignals(True)
                     self.smp_cpu_spinbox.setValue(smp_cpus)
                     self.smp_cpu_spinbox.blockSignals(False)
             else:
+                # Senão usa valor do spinbox mesmo
                 smp_cpus = self.smp_cpu_spinbox.value()
 
+            # Alerta se vCPUs selecionadas ultrapassam CPUs do host
             if smp_cpus > self.host_cpu_count:
-                QMessageBox.warning(self, "vCPU Warning", f"vCPUs ({smp_cpus}) > host CPUs ({self.host_cpu_count}).")
+                QMessageBox.warning(self, "vCPU Warning",
+                                    f"vCPUs selecionadas ({smp_cpus}) excedem CPUs físicas do host ({self.host_cpu_count}).")
 
+            # Atualiza config central
             config_update = {
-                CPU_CONFIG: self.cpu_combo.currentText(),
-                SMP_PASSTHROUGH_CONFIG: is_host_cpu and passthrough_enabled,
+                CPU_CONFIG: current_cpu,
+                SMP_PASSTHROUGH_CONFIG: passthrough_enabled,
                 CPU_MITIGATIONS_CONFIG: self.cpu_mitigations_checkbox.isChecked(),
                 TOPOLOGY_ENABLED_CONFIG: topology_enabled,
                 SMP_CPUS_CONFIG: smp_cpus,
@@ -287,10 +315,12 @@ class HardwarePage(QWidget):
                 SMP_THREADS_CONFIG: self.smp_threads_spinbox.value(),
             }
             self.app_context.update_config(config_update)
+
         finally:
-            self._set_cpu_signals_blocked(False)
+            self._updating_cpu_ui = False
 
         self.hardware_config_changed.emit()
+        
 
     def _set_cpu_signals_blocked(self, blocked: bool):
         widgets = [
@@ -323,6 +353,7 @@ class HardwarePage(QWidget):
         self.cpu_combo.blockSignals(False)
         self._update_cpu_config_and_ui()
 
+
     def load_machine_list(self):
         self.machine_combo.blockSignals(True)
         self.machine_combo.clear()
@@ -342,8 +373,11 @@ class HardwarePage(QWidget):
         self.machine_combo.blockSignals(False)
 
     def load_config_to_ui(self):
-        self._set_all_signals_blocked(True)
+        if self._loading_config:
+            return
+        self._loading_config = True
         try:
+            self._set_all_signals_blocked(True)              
             config = self.app_context.config
 
             # CPU
@@ -404,6 +438,7 @@ class HardwarePage(QWidget):
 
         finally:
             self._set_all_signals_blocked(False)
+            self._loading_config = False
 
     def _set_all_signals_blocked(self, blocked: bool):
         widgets = [
@@ -421,27 +456,38 @@ class HardwarePage(QWidget):
     # === QEMU Helper Updates ===
 
     def update_qemu_helper(self):
+        print("update_qemu_helper chamado")
         config = self.app_context.config
         bin_path = ""
 
-        custom_exec = config.get("custom_executable", "").strip()
+        custom_exec = config.get("qemu_executable", "").strip()
         if custom_exec and os.path.isfile(custom_exec):
             bin_path = custom_exec
-        else:
-            qemu_exec_name = config.get("qemu_executable", "").strip()
-            qemu_binaries = getattr(self.app_context, "qemu_binaries", [])
-            if qemu_exec_name in qemu_binaries:
-                bin_path = qemu_exec_name
+        elif custom_exec:
+            from shutil import which
+            full_path = which(custom_exec)
+            if full_path and os.path.isfile(full_path):
+                bin_path = full_path
 
         if not bin_path:
+            print("Nenhum binário válido encontrado para QEMU.")
             return
 
-        # Hypothetical qemu_helper update (depends on your helper class)
-        if not self.qemu_helper or self.qemu_helper.binary != bin_path:
-            from qemu_helper import QemuHelper
-            self.qemu_helper = QemuHelper(bin_path)
-            self.load_cpu_list()
-            self.load_machine_list()
+        # Usa o cache corretamente via app_context
+        qemu_info_cache = getattr(self.app_context, "qemu_info_cache", None)
+        if not qemu_info_cache:
+            print("qemu_info_cache não disponível na app_context.")
+            return
+
+        helper = qemu_info_cache._get_helper(bin_path)
+        if helper is None:
+            print(f"Erro ao obter helper para: {bin_path}")
+            return
+
+        # Seta o helper e usa os métodos que já existem
+        self.qemu_helper = helper
+        self.load_cpu_list()       # Essa já chama get_cpu_list do helper real
+        self.load_machine_list()   # Idem
 
     # === Event Handlers ===
 
@@ -457,10 +503,14 @@ class HardwarePage(QWidget):
         self.app_context.update_config({KVM_ACCEL_CONFIG: bool(state)})
         self.hardware_config_changed.emit()
 
-    def on_app_config_changed(self):
+    def on_app_config_changed(self):        
+        if self._loading_config:
+            return
+        self._loading_config = True 
         self.load_config_to_ui()
+        self._loading_config = False
 
-    # === Parse Direct / Reverse ===
+        # === Parse Direct / Reverse ===
 
     def qemu_direct_parse(self, args):
         """
@@ -529,4 +579,6 @@ class HardwarePage(QWidget):
         # Add more reverse parse for misc options as needed
 
         return args
+
+
 
