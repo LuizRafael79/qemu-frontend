@@ -3,6 +3,8 @@ from PyQt5.QtWidgets import (
     QFileDialog, QLineEdit, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
+from app.utils.qemu_helper import QemuHelper, QemuInfoCache
+from app.context.app_context import AppContext
 import os
 import re
 
@@ -177,15 +179,18 @@ class FloppyWidget(QWidget):
 class StoragePage(QWidget):
     storage_config_changed = pyqtSignal()
 
-    def __init__(self, app_context):
+    def __init__(self, app_context: AppContext):
         super().__init__()
         self.app_context = app_context
         self.drive_widgets = []
         self.floppy_widgets = []
         self.drive_count = 0
         self.floppy_count = 0
-        self.loading = False  # FLAG para controlar mudanças durante carga
+        self.loading = False
 
+        self.setup_ui()
+
+    def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -208,6 +213,11 @@ class StoragePage(QWidget):
 
         self.floppy_container = QVBoxLayout()
         self.main_layout.addLayout(self.floppy_container)
+
+    def bind_signals(self):
+        self.app_context.config_loaded.connect(self.load_config_to_ui)
+        self.storage_config_changed.connect(self.app_context.config_changed.emit)
+
 
     # ---------- Parse direto CLI string -> widgets ----------
 
@@ -430,13 +440,13 @@ class StoragePage(QWidget):
             "floppies": floppies,
             "qemu_args": qemu_args_str
         })
-        self.storage_config_changed.emit()
+        self.storage_config_changed.emit()    
 
-    def _connect_drive_signals(self, widget):
+    def _connect_drive_signals(self, widget: DriveWidget):
         widget.drive_changed.connect(self._on_storage_changed)
         widget.drive_removed.connect(self._on_drive_removed)
 
-    def _connect_floppy_signals(self, widget):
+    def _connect_floppy_signals(self, widget: FloppyWidget):
         widget.floppy_changed.connect(self._on_storage_changed)
         widget.floppy_removed.connect(self._on_floppy_removed)
 
@@ -499,11 +509,7 @@ class StoragePage(QWidget):
             w.setParent(None)
             w.deleteLater()
         self.floppy_widgets.clear()
-        self.floppy_count = 0
-        
-    def bind_signals(self):
-        # Conecta o sinal de carregamento de config global ao método de carregamento da página
-        self.app_context.config_loaded.connect(self.load_config_to_ui)
+        self.floppy_count = 0      
 
     def clear_all_drives(self): # <--- AQUI ESTÁ ELA!
         for widget in self.drive_widgets:

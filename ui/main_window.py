@@ -12,7 +12,6 @@ from ui.styles.themes import get_dark_stylesheet, get_light_stylesheet
 import json
 import os
 
-
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -20,18 +19,26 @@ class MainWindow(QWidget):
         self.resize(900, 600)
 
         self.app_context = AppContext()
-        self.overview_page = OverviewPage(self.app_context)
+        self.config_file = "config.json"
+        self.qemu_process = None
+        self._vm_state = {"theme": "dark"}
+        self.recursion_prevent = False
 
+        # Instanciação explícita das páginas
+        self.overview_page = OverviewPage(self.app_context)
+        self.app_context.register_page("overview", self.overview_page)
+        self.hardware_page = HardwarePage(self.app_context)
+        self.app_context.register_page("hardware", self.hardware_page)
+        self.storage_page = StoragePage(self.app_context)
+        self.app_context.register_page("storage", self.storage_page)
+
+        # Conecta sinais globais
         self.app_context.config_changed.connect(self._config_changed)
         self.app_context.config_loaded.connect(self._config_loaded)
         self.app_context.config_saved.connect(self._config_saved)
-        self.qemu_helper = None
+        self.app_context.qemu_args_pasted.connect(self.overview_page.qemu_direct_parse)
 
-        self.config_file = "config.json"
-        self._vm_state = {'theme': 'dark'}
-        self.qemu_process = None
-        self.recursion_prevent = False
-
+        # Setup da interface
         self.setup_ui()
         self.apply_theme()
         self.load_vm_config_from_file()
@@ -50,17 +57,17 @@ class MainWindow(QWidget):
         self.pages = QStackedWidget()
 
         self.items = [
-            ("Overview", "fa5s.home"),
-            ("Hardware", "fa5s.microchip"),
-            ("Storage", "fa5s.hdd"),
-            ("Network", "fa5s.network-wired"),
-            ("Display", "fa5s.desktop"),
-            ("Sound", "fa5s.volume-up"),
-            ("Advanced", "fa5s.cogs"),
-            ("Logs", "fa5s.terminal")
+            ("Overview", "fa5s.home", self.overview_page),
+            ("Hardware", "fa5s.microchip", self.hardware_page),
+            ("Storage", "fa5s.hdd", self.storage_page),
+            ("Network", "fa5s.network-wired", None),
+            ("Display", "fa5s.desktop", None),
+            ("Sound", "fa5s.volume-up", None),
+            ("Advanced", "fa5s.cogs", None),
+            ("Logs", "fa5s.terminal", None)
         ]
 
-        for idx, (text, icon) in enumerate(self.items):
+        for idx, (text, icon, page) in enumerate(self.items):
             btn = SidebarButton(
                 text,
                 icon,
@@ -73,63 +80,18 @@ class MainWindow(QWidget):
             self.sidebar_layout.addWidget(btn)
             self.buttons.append(btn)
 
-            if text == "Overview":
-                page = OverviewPage(self.app_context)
-                self.overview_page = page
-                self.overview_page.overview_config_changed.connect(self.app_context.config_changed)
-            elif text == "Hardware":
-                page = HardwarePage(self.app_context)
-                self.hardware_page = page
-                self.hardware_page.hardware_config_changed.connect(self.app_context.config_changed)
-                self.hardware_page.hardware_config_changed.connect(self.qemu_reverse_parse)
-            elif text == "Storage":
-                page = StoragePage(self.app_context)
-                self.storage_page = page
-                self.storage_page.storage_config_changed.connect(self.app_context.config_changed)
-                self.storage_page.storage_config_changed.connect(self.qemu_reverse_parse)
+            if page is not None:
+                self.pages.addWidget(page)
             else:
                 placeholder = QLabel(f"Page: {text}")
-                placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                page = placeholder
-
-            self.pages.addWidget(page)
-
-        self.app_context.qemu_args_pasted.connect(self.qemu_direct_parse)
+                placeholder.setAlignment(Qt.AlignCenter)
+                self.pages.addWidget(placeholder)
 
         self.sidebar_layout.addStretch()
 
-        self.save_config_button = SidebarButton(
-            "Salvar Config",
-            "fa5s.save",
-            text_color="#f8f8f2",
-            icon_color="#50fa7b",
-            selected_bg="rgba(80, 92, 144, 0.3)",
-            hover_bg="#505c90"
-        )
-        self.save_config_button.clicked.connect(self.save_vm_config_to_file)
-        self.sidebar_layout.addWidget(self.save_config_button)
-
-        self.load_config_button = SidebarButton(
-            "Carregar Config",
-            "fa5s.folder-open",
-            text_color="#f8f8f2",
-            icon_color="#ffb86c",
-            selected_bg="rgba(80, 92, 144, 0.3)",
-            hover_bg="#505c90"
-        )
-        self.load_config_button.clicked.connect(self.load_vm_config_from_file)
-        self.sidebar_layout.addWidget(self.load_config_button)
-
-        self.theme_button = SidebarButton(
-            "Alternar Tema",
-            "fa5s.adjust",
-            text_color="#f8f8f2",
-            icon_color="#8be9fd",
-            selected_bg="rgba(80, 92, 144, 0.3)",
-            hover_bg="#505c90"
-        )
-        self.theme_button.clicked.connect(self.toggle_theme)
-        self.sidebar_layout.addWidget(self.theme_button)
+        self.sidebar_layout.addWidget(self._make_button("Salvar Config", "fa5s.save", self.save_vm_config_to_file, "#50fa7b"))
+        self.sidebar_layout.addWidget(self._make_button("Carregar Config", "fa5s.folder-open", self.load_vm_config_from_file, "#ffb86c"))
+        self.sidebar_layout.addWidget(self._make_button("Alternar Tema", "fa5s.adjust", self.toggle_theme, "#8be9fd"))
 
         main_layout.addWidget(self.sidebar)
         main_layout.addWidget(self.pages)
@@ -139,6 +101,17 @@ class MainWindow(QWidget):
             self.pages.setCurrentIndex(0)
 
         self.pages.currentChanged.connect(self.on_page_changed)
+
+    def _make_button(self, text, icon, callback, icon_color):
+        btn = SidebarButton(
+            text, icon,
+            text_color="#f8f8f2",
+            icon_color=icon_color,
+            selected_bg="rgba(80, 92, 144, 0.3)",
+            hover_bg="#505c90"
+        )
+        btn.clicked.connect(callback)
+        return btn
 
     def _config_changed(self):
         self.update_window_title()
@@ -170,7 +143,6 @@ class MainWindow(QWidget):
     def on_page_changed(self, index):
         for i, btn in enumerate(self.buttons):
             btn.setChecked(i == index)
-
         page = self.pages.currentWidget()
         if page and hasattr(page, "on_page_changed"):
             page.on_page_changed()
@@ -185,7 +157,7 @@ class MainWindow(QWidget):
     def set_dark_theme(self):
         self.setStyleSheet(get_dark_stylesheet())
         self.sidebar.setStyleSheet("background-color: #282a36;")
-        for btn in self.buttons + [self.theme_button]:
+        for btn in self.buttons:
             btn.text_color = "#f8f8f2"
             btn.icon_color = "#8be9fd"
             btn.selected_bg = "rgba(80, 92, 144, 0.3)"
@@ -196,7 +168,7 @@ class MainWindow(QWidget):
     def set_light_theme(self):
         self.setStyleSheet(get_light_stylesheet())
         self.sidebar.setStyleSheet("background-color: #ffffff;")
-        for btn in self.buttons + [self.theme_button]:
+        for btn in self.buttons:
             btn.text_color = "#1a1a1a"
             btn.icon_color = "#003366"
             btn.selected_bg = "rgba(0, 51, 102, 0.15)"
@@ -205,9 +177,8 @@ class MainWindow(QWidget):
             btn.setStyleSheet(btn.build_style())
 
     def toggle_theme(self):
-        current_theme = self._vm_state.get('theme', 'dark')
-        new_theme = 'light' if current_theme == 'dark' else 'dark'
-        self._vm_state['theme'] = new_theme
+        current = self._vm_state.get('theme', 'dark')
+        self._vm_state['theme'] = 'light' if current == 'dark' else 'dark'
         self.apply_theme()
 
     def save_vm_config_to_file(self):
@@ -234,19 +205,16 @@ class MainWindow(QWidget):
             self.app_context.set_config(config)
 
             self.overview_page.load_config_to_ui()
-            self.hardware_page.load_cpu_list()
-            self.hardware_page.load_config_to_ui()
-            self.storage_page.load_config_to_ui()
-            
+
             print("Configuração carregada com sucesso!")
 
         except Exception as e:
             print(f"Erro ao carregar configuração: {e}")
 
-        finally:           
+        finally:
             self.app_context.finish_loading()
             self.app_context.config_loaded.emit()
-            
+
     def update_window_title(self):
         if not self.recursion_prevent:
             self.recursion_prevent = True
@@ -254,19 +222,5 @@ class MainWindow(QWidget):
             title = "\u25CF " + base_title if self.app_context.is_modified() else base_title
             if self.app_context.config and "name" in self.app_context.config:
                 title += f" - {self.app_context.config['name']}"
-            else:
-                self.setWindowTitle(title)
-                self.recursion_prevent = False
-
-    def qemu_direct_parse(self, cmdline: list[str]):
-        remaining = self.hardware_page.qemu_direct_parse(cmdline)
-        if remaining:
-            remaining = self.storage_page.qemu_direct_parse(remaining)
-        self.overview_page.update_qemu_args(remaining)
-
-    def qemu_reverse_parse(self):
-        args = []
-        #args += self.hardware_page.qemu_reverse_parse_args()
-        args += self.storage_page.qemu_reverse_parse_args()
-        args += self.hardware_page.qemu_reverse_parse_args()   
-        self.overview_page.update_qemu_args(args)
+            self.setWindowTitle(title)
+            self.recursion_prevent = False

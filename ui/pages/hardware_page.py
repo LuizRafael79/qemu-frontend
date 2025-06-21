@@ -5,7 +5,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QIntValidator
 import multiprocessing
-import os
 from typing import Optional, List, Dict, Any
 from app.utils.qemu_helper import QemuHelper
 from app.context.app_context import AppContext
@@ -31,30 +30,18 @@ DEFAULT_MEMORY = "1024"
 HOST_CPU = "host"
 
 
-class HardwarePage(QWidget):
-    """
-    A QWidget page for configuring QEMU hardware settings like CPU, memory, and machine type.
-    It interacts with the main application context to load and save configuration.
-    """
+class HardwarePage(QWidget): 
     hardware_config_changed = pyqtSignal()
-    """Signal emitted when any hardware configuration value is changed by the user."""
 
-    def __init__(self, app_context: AppContext):
-        """
-        Initializes the HardwarePage.
-
-        Args:
-            app_context: The application context for accessing shared state and configuration.
-        """
-        super().__init__()
-        
+    def __init__(self, app_context: AppContext):       
+        super().__init__()        
         self.app_context = app_context
         self.qemu_helper: Optional[QemuHelper] = None
         self.host_cpu_count = multiprocessing.cpu_count()
 
         self._setup_ui()
         self.bind_signals()
-        
+        self.hardware_config_changed.connect(self.app_context.config_changed.emit)
         self.load_cpu_list()
 
     def _setup_ui(self):

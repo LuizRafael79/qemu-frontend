@@ -1,5 +1,5 @@
 {
-    "cpu": "default",
+    "cpu": "host",
     "smp_passthrough": false,
     "cpu_mitigations": false,
     "topology_enabled": false,
@@ -7,5 +7,73 @@
     "smp_sockets": 1,
     "smp_cores": 1,
     "smp_threads": 1,
-    "kvm_acceleration": false
+    "qemu_args": [],
+    "extra_args": [],
+    "memory_mb": 2048,
+    "kvm_acceleration": false,
+    "drives": [
+        {
+            "id": "disk0",
+            "file": "floppy/disks/abd4/fd4.ima",
+            "if": "none",
+            "media": "disk",
+            "format": "raw"
+        },
+        {
+            "id": "disk1",
+            "file": "hdd/win98.qcow2",
+            "if": "scsi",
+            "media": "disk",
+            "format": "qcow2"
+        },
+        {
+            "id": "disk2",
+            "file": "extras/disk.img",
+            "if": "scsi",
+            "media": "disk",
+            "format": "raw"
+        },
+        {
+            "id": "disk3",
+            "file": "cdrom/win98qi_v0.9.6_ALL.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk4",
+            "file": "cdrom/softgpu-0.6.2024.40.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk5",
+            "file": "cdrom/wrappers.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk6",
+            "file": "cdrom/mesa9x-24.1.5.114-driver-win98.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk7",
+            "file": "cdrom/Security9_enu_15.iso",
+            "if": "none",
+            "media": "cdrom"
+        },
+        {
+            "id": "disk8",
+            "file": "cdrom/vmaddons.iso",
+            "if": "none",
+            "media": "cdrom"
+        }
+    ],
+    "floppies": [],
+    "scsi_controller_needed": true,
+    "virtio_controller_needed": false,
+    "architecture": "Architecture: i386",
+    "qemu_executable": "qemu-system-i386",
+    "custom_executable": ""
 }
