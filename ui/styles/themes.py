@@ -1,3 +1,12 @@
+# This file is part of qemu-frontend.
+# Copyright (C) 2025 Luiz Rafael
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License v3.
+# See the LICENSE file for more details.
+#
+# This file contains the stylesheets for dark and light themes used in the application.
+# It provides functions to retrieve the stylesheets as strings.
+# -*- coding: utf-8 -*-
 def get_dark_stylesheet():
     return """
         QWidget { 

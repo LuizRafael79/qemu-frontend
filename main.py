@@ -1,3 +1,9 @@
+# This file is part of qemu-frontend.
+# Copyright (C) 2025 Luiz Rafael
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License v3.
+# See the LICENSE file for more details.
+
 import sys
 import os
 from PyQt5.QtWidgets import QApplication
