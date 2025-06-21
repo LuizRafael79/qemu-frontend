@@ -1,0 +1,13 @@
+{
+    "cpu": "Cascadelake-Server-v5",
+    "smp_passthrough": false,
+    "cpu_mitigations": false,
+    "topology_enabled": false,
+    "smp_cpus": 4,
+    "smp_sockets": 1,
+    "smp_cores": 1,
+    "smp_threads": 1,
+    "architecture": "Architecture: i386",
+    "qemu_executable": "qemu-system-i386",
+    "custom_executable": ""
+}
