@@ -6,7 +6,7 @@
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QCheckBox, QHBoxLayout,
-    QPushButton, QSpinBox, QGroupBox, QMessageBox
+    QPushButton, QSpinBox, QGroupBox, QMessageBox, QLineEdit, QFileDialog
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QIntValidator
@@ -22,6 +22,7 @@ CPU_CONFIG = "cpu"
 MACHINE_TYPE_CONFIG = "machine_type"
 MEMORY_MB_CONFIG = "memory_mb"
 KVM_ACCEL_CONFIG = "kvm_acceleration"
+DEFAULT_KVM = False
 SMP_PASSTHROUGH_CONFIG = "smp_passthrough"
 SMP_CPUS_CONFIG = "smp_cpus"
 CPU_MITIGATIONS_CONFIG = "cpu_mitigations"
@@ -54,19 +55,10 @@ class HardwarePage(QWidget):
 
         self._setup_ui()
         self.bind_signals()
+        self.update_qemu_helper()
         self.hardware_config_changed.connect(self.app_context.config_changed.emit)
-        qemu_exec = self.app_context.config.get("qemu_executable", "").strip()
 
-        # Tenta buscar o helper do cache, sem reexecutar QEMU
-        if qemu_exec:
-            helper = self.app_context.qemu_info_cache._get_helper(qemu_exec)
-            if helper:
-                self.qemu_helper = helper
-                self.load_cpu_list()
-                self.load_machine_list()
-                # Só depois carrega config pra UI
         self.load_config_to_ui()
-
 
     # === UI Setup ===
 
@@ -187,9 +179,13 @@ class HardwarePage(QWidget):
 
         hbox_bios = QHBoxLayout()
         hbox_bios.addWidget(QLabel("BIOS file path:"))
-        self.bios_lineedit = QComboBox()
-        self.bios_lineedit.setEditable(True)
+
+        self.bios_lineedit = QLineEdit()
         hbox_bios.addWidget(self.bios_lineedit)
+
+        self.bios_browse_btn = QPushButton("Browse")
+        hbox_bios.addWidget(self.bios_browse_btn)
+
         layout.addLayout(hbox_bios)
 
         layout.addWidget(QLabel("Boot order:"))
@@ -221,12 +217,17 @@ class HardwarePage(QWidget):
         self.smp_sockets_spinbox.valueChanged.connect(self._update_cpu_config_and_ui)
         self.smp_cores_spinbox.valueChanged.connect(self._update_cpu_config_and_ui)
         self.smp_threads_spinbox.valueChanged.connect(self._update_cpu_config_and_ui)
+        
+        # Memory signals
+        self.mem_combo.currentTextChanged.connect(self._update_cpu_config_and_ui)
+        self.kvm_accel_checkbox.stateChanged.connect(self._update_cpu_config_and_ui)
 
         # Misc signals
         self.usb_checkbox.stateChanged.connect(lambda s: self._update_misc_config())
         self.rtc_checkbox.stateChanged.connect(lambda s: self._update_misc_config())
         self.nodefaults_checkbox.stateChanged.connect(lambda s: self._update_misc_config())
-        self.bios_lineedit.currentTextChanged.connect(lambda s: self._update_misc_config())
+        self.bios_lineedit.textChanged.connect(self._update_misc_config)
+        self.bios_browse_btn.clicked.connect(self.on_bios_browse_clicked)
         self.boot_combo.currentTextChanged.connect(lambda s: self._update_misc_config())
 
         # Other hardware signals
@@ -240,17 +241,26 @@ class HardwarePage(QWidget):
         config_update = {
             ENABLE_USB: self.usb_checkbox.isChecked(),
             ENABLE_RTC: self.rtc_checkbox.isChecked(),
-            DISABLE_NODEFAULTS: self.nodefaults_checkbox.isChecked(),
-            BIOS_PATH: self.bios_lineedit.currentText().strip(),
-            BOOT_ORDER: self.boot_combo.currentText().strip(),
+            DISABLE_NODEFAULTS: self.nodefaults_checkbox.isChecked(),            
+            BIOS_PATH: self.bios_lineedit.text().strip(),
+            BOOT_ORDER: self.boot_combo.currentText().strip()
         }
         self.app_context.update_config(config_update)
         self.hardware_config_changed.emit()
 
+    def on_bios_browse_clicked(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select BIOS file")
+        if path:
+            self.bios_lineedit.setText(path)  # Aqui usa setText, pois é QLineEdit
+            self._update_misc_config()  # Atualiza config com novo caminho
+
+
     def _update_cpu_config_and_ui(self):
+        if getattr(self, "_loading_config", False):
+            return  # ← impede sobrescrita de valores do JSON
         if getattr(self, "_updating_cpu_ui", False):
             return
-        self._updating_cpu_ui = True
+        self._updating_cpu_ui = True        
         try:
             current_cpu = self.cpu_combo.currentText()
             passthrough_enabled = self.smp_passthrough_checkbox.isChecked()
@@ -306,10 +316,9 @@ class HardwarePage(QWidget):
 
             # Alerta se vCPUs selecionadas ultrapassam CPUs do host
             if smp_cpus > self.host_cpu_count:
-                QMessageBox.warning(self, "vCPU Warning",
-                                    f"vCPUs selecionadas ({smp_cpus}) excedem CPUs físicas do host ({self.host_cpu_count}).")
+                QMessageBox.warning(self, "vCPU Warning", f"vCPUs selecionadas ({smp_cpus}) excedem CPUs físicas do host ({self.host_cpu_count}).")
 
-            # Atualiza config central
+            # Prepara update
             config_update = {
                 CPU_CONFIG: current_cpu,
                 SMP_PASSTHROUGH_CONFIG: passthrough_enabled,
@@ -320,13 +329,24 @@ class HardwarePage(QWidget):
                 SMP_CORES_CONFIG: self.smp_cores_spinbox.value(),
                 SMP_THREADS_CONFIG: self.smp_threads_spinbox.value(),
             }
-            self.app_context.update_config(config_update)
+
+            # Compara o estado atual para evitar update desnecessário
+            current_config_subset = {k: self.app_context.config.get(k) for k in config_update}
+            if config_update != current_config_subset:
+                try:
+                    self.app_context.config_changed.disconnect(self.on_app_config_changed)
+                except Exception:
+                    pass  # sinal pode já estar desconectado
+
+                self.app_context.update_config(config_update)
+
+                self.app_context.config_changed.connect(self.on_app_config_changed)
+
+                self.hardware_config_changed.emit()
 
         finally:
             self._updating_cpu_ui = False
-
-        self.hardware_config_changed.emit()
-        
+    
 
     def _set_cpu_signals_blocked(self, blocked: bool):
         widgets = [
@@ -341,12 +361,15 @@ class HardwarePage(QWidget):
     # === Loaders ===
 
     def load_cpu_list(self):
+        self._loading_config = True
         self.cpu_combo.blockSignals(True)
         self.cpu_combo.clear()
 
         cpus = [DEFAULT_CPU]
         if self.qemu_helper:
+            print("QEMU Helper não disponível na HardwarePage")
             cpus = self.qemu_helper.get_cpu_list()
+            print(f"[load_cpu_list] CPUs carregadas: {cpus}")
 
         self.cpu_combo.addItems(cpus)
 
@@ -355,10 +378,11 @@ class HardwarePage(QWidget):
             self.cpu_combo.setCurrentText(selected_cpu)
         elif self.cpu_combo.count() > 0:
             self.cpu_combo.setCurrentIndex(0)
+            print("Combo de CPU: adicionou fallback 'default'")
 
         self.cpu_combo.blockSignals(False)
         self._update_cpu_config_and_ui()
-
+        self._loading_config = False
 
     def load_machine_list(self):
         self.machine_combo.blockSignals(True)
@@ -386,14 +410,6 @@ class HardwarePage(QWidget):
             self._set_all_signals_blocked(True)              
             config = self.app_context.config
 
-            # CPU
-            cpu = config.get(CPU_CONFIG, "")
-            if self.cpu_combo.findText(cpu) != -1:
-                self.cpu_combo.setCurrentText(cpu)
-            elif self.cpu_combo.count() > 0:
-                self.cpu_combo.setCurrentIndex(0)
-            self._update_cpu_config_and_ui()
-
             # Machine
             machine = config.get(MACHINE_TYPE_CONFIG, DEFAULT_MACHINE)
             if self.machine_combo.findText(machine) != -1:
@@ -409,12 +425,13 @@ class HardwarePage(QWidget):
                 self.mem_combo.setCurrentText(DEFAULT_MEMORY)
 
             # KVM
-            self.kvm_accel_checkbox.setChecked(config.get(KVM_ACCEL_CONFIG, False))
+            kvm_accel = config.get(KVM_ACCEL_CONFIG, False)
+            self.kvm_accel_checkbox.setChecked(kvm_accel)
 
             # SMP Passthrough and vCPUs
             self.smp_passthrough_checkbox.setChecked(config.get(SMP_PASSTHROUGH_CONFIG, False))
-            smp_cpus = config.get(SMP_CPUS_CONFIG, 2)
-            self.smp_cpu_spinbox.setValue(smp_cpus if smp_cpus >= 1 else 2)
+            smp_cpu = config.get(SMP_CPUS_CONFIG, 2)
+            self.smp_cpu_spinbox.setValue(smp_cpu if smp_cpu >= 1 else 2)
 
             # Mitigations
             self.cpu_mitigations_checkbox.setChecked(config.get(CPU_MITIGATIONS_CONFIG, False))
@@ -434,7 +451,7 @@ class HardwarePage(QWidget):
 
             # BIOS path
             bios_path = config.get(BIOS_PATH, "")
-            self.bios_lineedit.setEditText(bios_path)
+            self.bios_lineedit.setText(bios_path)
 
             # Boot order
             boot = config.get(BOOT_ORDER, "")
@@ -443,8 +460,11 @@ class HardwarePage(QWidget):
                 self.boot_combo.setCurrentIndex(idx)
 
         finally:
-            self._set_all_signals_blocked(False)
+            self._loading_config = True
+            self.load_cpu_list()
+            self.load_machine_list()
             self._loading_config = False
+            self._set_all_signals_blocked(False)
 
     def _set_all_signals_blocked(self, blocked: bool):
         widgets = [
@@ -466,17 +486,24 @@ class HardwarePage(QWidget):
         config = self.app_context.config
         bin_path = ""
 
-        custom_exec = config.get("qemu_executable", "").strip()
-        if custom_exec and os.path.isfile(custom_exec):
-            bin_path = custom_exec
-        elif custom_exec:
-            from shutil import which
-            full_path = which(custom_exec)
-            if full_path and os.path.isfile(full_path):
-                bin_path = full_path
+        try:
+            custom_exec = config.get("qemu_executable", "").strip()
+            print(f"Executável Qemu: {custom_exec}")
+            
+            if custom_exec and os.path.isfile(custom_exec):
+                bin_path = custom_exec
+            elif custom_exec:
+                from shutil import which
+                full_path = which(custom_exec)
+                if full_path and os.path.isfile(full_path):
+                    bin_path = full_path
 
-        if not bin_path:
-            print("Nenhum binário válido encontrado para QEMU.")
+            if not bin_path:
+                print("Nenhum binário válido encontrado para QEMU.")
+                return
+
+        except Exception as e:
+            print(f"Erro ao obter caminho do executável QEMU: {e}")
             return
 
         # Usa o cache corretamente via app_context
@@ -492,8 +519,7 @@ class HardwarePage(QWidget):
 
         # Seta o helper e usa os métodos que já existem
         self.qemu_helper = helper
-        self.load_cpu_list()       # Essa já chama get_cpu_list do helper real
-        self.load_machine_list()   # Idem
+        self.load_config_to_ui()
 
     # === Event Handlers ===
 
@@ -513,47 +539,52 @@ class HardwarePage(QWidget):
         if self._loading_config:
             return
         self._loading_config = True 
-        self.load_config_to_ui()
+
+        # Verifica se o QEMU mudou
+        config = self.app_context.config
+        qemu_exec = config.get("qemu_executable", "").strip()
+        if self.qemu_helper is None or (self.qemu_helper.qemu_path != qemu_exec):
+            self.update_qemu_helper()
+
+        #self.load_config_to_ui()
         self._loading_config = False
 
         # === Parse Direct / Reverse ===
 
     def qemu_direct_parse(self, args):
-        """
-        Parse QEMU command line args, update UI accordingly.
-        Return leftover args that were not parsed.
-        """
-        leftover = []
         it = iter(args)
         for arg in it:
             if arg == "-cpu":
-                cpu_val = next(it, None)
-                if cpu_val:
-                    self.cpu_combo.setCurrentText(cpu_val)
-                continue
-            if arg == "-smp":
-                smp_val = next(it, None)
-                if smp_val:
+                val = next(it, None)
+                if val:
+                    self.cpu_combo.setCurrentText(val)
+            elif arg == "-smp":
+                val = next(it, None)
+                if val:
                     try:
-                        smp_num = int(smp_val.split(",")[0])
+                        smp_num = int(val.split(",")[0])
                         self.smp_cpu_spinbox.setValue(smp_num)
-                    except Exception:
+                    except:
                         pass
-                continue
-            if arg == "-machine":
-                machine_val = next(it, None)
-                if machine_val:
-                    self.machine_combo.setCurrentText(machine_val)
-                continue
-            if arg == "-m":
-                mem_val = next(it, None)
-                if mem_val and mem_val.isdigit():
-                    self.mem_combo.setCurrentText(mem_val)
-                continue
-            # Add more parses here as needed
-
-            leftover.append(arg)
-        return leftover
+            elif arg == "-machine":
+                val = next(it, None)
+                if val:
+                    self.machine_combo.setCurrentText(val)
+            elif arg == "-m":
+                val = next(it, None)
+                if val and val.isdigit():
+                    self.mem_combo.setCurrentText(val)
+            elif arg == "-bios":
+                val = next(it, None)
+                if val:
+                    self.bios_lineedit.setText(val)
+            elif arg == "-boot":
+                val = next(it, None)
+                if val:
+                    self.boot_combo.setCurrentText(val)
+            # mais args se quiser
+            else:
+                pass  # ignorar por enquanto
 
     def qemu_reverse_parse(self):
         """
@@ -565,8 +596,15 @@ class HardwarePage(QWidget):
         if cpu_val and cpu_val != DEFAULT_CPU:
             args += ["-cpu", cpu_val]
 
-        smp_val = str(self.smp_cpu_spinbox.value())
-        args += ["-smp", smp_val]
+        if self.topology_checkbox.isChecked():
+            sockets = self.smp_sockets_spinbox.value()
+            cores = self.smp_cores_spinbox.value()
+            threads = self.smp_threads_spinbox.value()
+            smp_str = f"sockets={sockets},cores={cores},threads={threads}"
+            args += ["-smp", smp_str]
+        else:
+            smp_val = str(self.smp_cpu_spinbox.value())
+            args += ["-smp", smp_val]
 
         machine_val = self.machine_combo.currentText()
         if machine_val:
@@ -580,11 +618,20 @@ class HardwarePage(QWidget):
             args += ["-enable-kvm"]
 
         if self.smp_passthrough_checkbox.isChecked():
+            # Evitar conflito com -cpu e -smp? Decida prioridade
             args += ["-cpu", "host"]
 
-        # Add more reverse parse for misc options as needed
+        bios_val = self.bios_lineedit.text().strip()
+        if bios_val:
+            args += ["-bios", bios_val]
 
-        return args
+        boot_val = self.boot_combo.currentText()
+        if boot_val:
+            args += ["-boot", boot_val]
+
+        return args     
+        
+
 
 
 

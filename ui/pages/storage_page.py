@@ -230,7 +230,6 @@ class StoragePage(QWidget):
     def qemu_direct_parse(self, cmdline_str):
         tokens = self.app_context.split_shell_command(cmdline_str)
 
-        # Evita disparos de sinal ao popular UI
         self.loading = True
         self.clear_all_drives()
         self.clear_all_floppies()
@@ -287,7 +286,6 @@ class StoragePage(QWidget):
                     drive_id = m.group(1)
                     dev_type = dev_str.lower().split(',')[0].strip()
 
-                    # Novo bloco genérico
                     interface = "none"
                     media = "disk"
 
@@ -315,7 +313,6 @@ class StoragePage(QWidget):
                 i += 2
                 continue
 
-
             else:
                 extra_args.append(arg)
                 i += 1
@@ -335,7 +332,7 @@ class StoragePage(QWidget):
                 virtio_needed = True
 
             if interface == "floppy" or did.startswith("floppy"):
-                self.add_floppy({
+                self._add_floppy_without_signals({
                     "unit": info.get("unit", 0),
                     "file": info.get("file", "")
                 })
@@ -351,7 +348,7 @@ class StoragePage(QWidget):
                 else:
                     fmt = "raw"
 
-                self.add_drive({
+                self._add_drive_without_signals({
                     "file": file,
                     "id": did,
                     "if": interface,
@@ -423,15 +420,23 @@ class StoragePage(QWidget):
         i = 0
         while i < len(args_list):
             part = args_list[i]
-            if i + 1 < len(args_list) and not args_list[i+1].startswith("-"):
-                lines.append(f"{part} {args_list[i+1]} \\")
+            # Caso 1: último argumento
+            if i + 1 >= len(args_list):
+                lines.append(f"{part} \\")
+                break
+            next_part = args_list[i + 1]
+            # Caso 2: próximo é valor que não começa com '-' e o atual começa com '-'
+            if part.startswith("-") and not next_part.startswith("-"):
+                lines.append(f"{part} {next_part} \\")
                 i += 2
             else:
+                # Junta parte atual sozinho
                 lines.append(f"{part} \\")
                 i += 1
         if lines:
-            lines[-1] = lines[-1].rstrip(" \\")
+            lines[-1] = lines[-1].rstrip(" \\")  # Remove barra da última linha
         return "\n".join(lines)
+
   
     def _on_storage_changed(self):
         if self.loading:
@@ -518,16 +523,20 @@ class StoragePage(QWidget):
         self.floppy_widgets.clear()
         self.floppy_count = 0      
 
-    def clear_all_drives(self): # <--- AQUI ESTÁ ELA!
+    def clear_all_drives(self):
         for widget in self.drive_widgets:
-            widget.drive_removed.disconnect(self._on_drive_removed) # Desconecta para evitar chamada duplicada
+            widget.drive_removed.disconnect(self._on_drive_removed)
+            self.drive_container.removeWidget(widget)  # Remove do layout
+            widget.setParent(None)
             widget.deleteLater()
         self.drive_widgets.clear()
         self.drive_count = 0
 
-    def clear_all_floppies(self): # <--- E AQUI ESTÁ ELA!
+    def clear_all_floppies(self):
         for widget in self.floppy_widgets:
-            widget.floppy_removed.disconnect(self._on_floppy_removed) # Desconecta para evitar chamada duplicada
+            widget.floppy_removed.disconnect(self._on_floppy_removed)
+            self.floppy_container.removeWidget(widget)  # Remove do layout
+            widget.setParent(None)
             widget.deleteLater()
         self.floppy_widgets.clear()
         self.floppy_count = 0

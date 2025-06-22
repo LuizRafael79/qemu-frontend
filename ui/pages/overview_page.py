@@ -17,7 +17,6 @@ import shutil
 import shlex
 
 import app
-from app.context import app_context
 from app.utils.qemu_helper import QemuInfoCache
 from app.context.app_context import AppContext
 
@@ -29,6 +28,9 @@ class OverviewPage(QWidget):
         super().__init__()
         self.app_context = app_context
         self.qemu_info_cache = QemuInfoCache()
+        self.tab_widget = QTabWidget()
+        self.hardware_page = self.app_context.get_page("hardware")
+        self.storage_page = self.app_context.get_page("storage")
 
         self._internal_text_change = False
         self.app_context.qemu_args_pasted.connect(self.update_qemu_args)
@@ -36,6 +38,8 @@ class OverviewPage(QWidget):
         self.setup_ui()
         self.populate_qemu_binaries()
         self.bind_signals()
+        self.qemu_direct_parse(args_list=None)
+        self.qemu_reverse_parse()
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -116,6 +120,10 @@ class OverviewPage(QWidget):
         self.qemu_combo.addItems([os.path.basename(p) for p in all_binaries])
         self.qemu_combo.blockSignals(False)
 
+        if not self.app_context.config.get("qemu_executable") and self.qemu_combo.count() > 0:
+            self.qemu_combo.setCurrentIndex(0)
+            self.on_qemu_combo_changed(0)
+        
     def load_config_to_ui(self):
         cfg = self.app_context.config
         if not cfg:
@@ -136,12 +144,13 @@ class OverviewPage(QWidget):
                 self._update_active_binary(custom_exec)
             else:
                 self.qemu_combo.setEnabled(True)
-                qemu_exec_basename = cfg.get("qemu_executable", "")
+                qemu_exec_basename = cfg.get("qemu_executable", "").strip()
                 items = [self.qemu_combo.itemText(i) for i in range(self.qemu_combo.count())]
                 if qemu_exec_basename and qemu_exec_basename in items:
                     self.qemu_combo.setCurrentText(qemu_exec_basename)
                 elif self.qemu_combo.count() > 0:
                     self.qemu_combo.setCurrentIndex(0)
+                    self.on_qemu_combo_changed(0)
 
                 if self.qemu_combo.currentIndex() >= 0:
                     binary_path = list(self.qemu_info_cache._cache.keys())[self.qemu_combo.currentIndex()]
@@ -154,6 +163,9 @@ class OverviewPage(QWidget):
 
             self.qemuargs_output.setPlainText(" ".join(qemu_args) if isinstance(qemu_args, list) else qemu_args)
             self.qemuextraargs_output.setPlainText(" \\\n".join(extra_args) if isinstance(extra_args, list) else extra_args)
+            hardware = self.app_context.get_page("hardware")            
+            if hardware:
+                hardware.update_qemu_helper()
 
         finally:
             self._internal_text_change = False
@@ -185,12 +197,14 @@ class OverviewPage(QWidget):
             self.overview_config_changed.emit()
 
     def on_qemu_combo_changed(self, index):
+        new_qemu_exec = self.qemu_combo.itemText(index)
+        self.app_context.update_config({"qemu_executable": new_qemu_exec})
+        
         if 0 <= index < len(self.qemu_info_cache._cache.keys()):
             bin_path = list(self.qemu_info_cache._cache.keys())[index]
             self._update_active_binary(bin_path)
-            hardware_page = self.app_context.get_page("hardware")
-            if hardware_page:
-                hardware_page.update_qemu_helper()
+            if self.hardware_page:
+                self.hardware_page.update_qemu_helper()
 
     def on_custom_path_changed(self, text):
         text = text.strip()
@@ -309,24 +323,25 @@ class OverviewPage(QWidget):
 # Dentro do OverviewPage, substitua:
 
     def qemu_direct_parse(self, args_list: list[str]):
+        from shlex import split
+        from textwrap import dedent
+
+        if isinstance(args_list, str):
+            args_list = args_list.replace("\\\n", " ").replace("\\\r\n", " ").strip()
+            args_list = split(args_list)
+
         remaining = args_list
-        hardware_page = self.app_context.get_page("hardware")
-        if hardware_page:
-            remaining = hardware_page.qemu_direct_parse(remaining)
-        storage_page = self.app_context.get_page("storage")
-        if storage_page:
-            remaining = storage_page.qemu_direct_parse(remaining)
+        if self.hardware_page:
+            remaining = self.hardware_page.qemu_direct_parse(remaining)
+        if self.storage_page:
+            remaining = self.storage_page.qemu_direct_parse(remaining)
         self.update_qemu_args(remaining)
 
     def qemu_reverse_parse(self) -> list[str]:
         args = []
-        hardware_page = self.app_context.get_page("hardware")
-        if hardware_page:
-            args += hardware_page.qemu_reverse_parse_args()
-
-        storage_page = self.app_context.get_page("storage")
-        if storage_page:
-            args += storage_page.qemu_reverse_parse_args()
+        if self.hardware_page:
+            args += self.hardware_page.qemu_reverse_parse()
+            args += self.storage_page.qemu_reverse_parse_args()
 
         extra_raw = self.qemuextraargs_output.toPlainText().strip()
         if extra_raw:
@@ -340,4 +355,14 @@ class OverviewPage(QWidget):
         self.qemuargs_output.blockSignals(False)
 
         return args
+    
+    def preprocess_qemu_command(raw_str: str) -> list[str]:
+        # Remove quebras de linha com contrabarra e junta tudo numa linha só
+        single_line = raw_str.replace("\\\n", " ").replace("\\\r\n", " ").strip()
+        # Agora usa shlex.split para quebrar em tokens corretamente
+        tokens = shlex.split(single_line)
+        return tokens
+
+    
+    
  

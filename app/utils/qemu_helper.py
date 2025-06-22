@@ -58,11 +58,13 @@ class QemuHelper:
         print(f"Gerando cache de informações para {os.path.basename(self.qemu_path)}...")
         version_output = self._run_qemu_command(["--version"])
         architecture = self._extract_architecture(version_output)
+        qemu_path = os.path.abspath(self.qemu_path)
         cache = {
             "version": version_output,
             "architecture": architecture,
             "cpu_help": self._run_qemu_command(["-cpu", "help"]),
-            "machine_help": self._run_qemu_command(["-machine", "help"])
+            "machine_help": self._run_qemu_command(["-machine", "help"]),
+            "qemu_path": qemu_path
         }
         try:
             with open(self.cache_file, "w") as f:

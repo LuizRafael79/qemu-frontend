@@ -94,5 +94,8 @@ class AppContext(QObject):
     def split_shell_command(self, cmdline_str):
         if isinstance(cmdline_str, list):
             cmdline_str = ' '.join(cmdline_str)
-        cleaned = cmdline_str.replace("\\\n", " ").replace("\\\r\n", " ").strip()
-        return shlex.split(cleaned)
+        
+        # Substitui \ seguido de \n (ou \r\n) por espaço, e depois normaliza TUDO em uma única linha
+        cleaned = cmdline_str.replace("\\\n", " ").replace("\\\r\n", " ")
+        cleaned = re.sub(r"[\r\n]+", " ", cleaned)  # Remove qualquer quebra de linha que sobrou
+        return shlex.split(cleaned.strip())

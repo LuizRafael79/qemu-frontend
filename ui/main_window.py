@@ -17,6 +17,7 @@ from ui.pages.storage_page import StoragePage
 from ui.styles.themes import get_dark_stylesheet, get_light_stylesheet
 import json
 import os
+import shutil
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -25,7 +26,6 @@ class MainWindow(QWidget):
         self.resize(900, 600)
 
         self.app_context = AppContext()
-        self.hardware_page = HardwarePage(self.app_context)
         self.config_file = "config.json"
         self.qemu_process = None
         self._vm_state = {"theme": "dark"}
@@ -186,26 +186,27 @@ class MainWindow(QWidget):
     def toggle_theme(self):
         current = self._vm_state.get('theme', 'dark')
         self._vm_state['theme'] = 'light' if current == 'dark' else 'dark'
-        self.apply_theme()
+        self.apply_theme() 
 
-    def save_vm_config_to_file(self):
-        try:
+    def save_vm_config_to_file(self):             
+
             with open(self.config_file, "w") as f:
                 json.dump(self.app_context.config, f, indent=4)
             self.app_context.mark_saved()
             print("Configuração salva com sucesso!")
             self.update_window_title()
-        except Exception as e:
-            print(f"Erro ao salvar configuração: {e}")
-
+    
     def load_vm_config_from_file(self):
         if not os.path.exists(self.config_file):
             self.app_context.start_loading()
+            self.hardware_page.update_qemu_helper()
+
             self.app_context.finish_loading()
             return
 
         try:
             self.app_context.start_loading()
+            self.hardware_page.update_qemu_helper()
             with open(self.config_file, "r") as f:
                 config = json.load(f)
 
