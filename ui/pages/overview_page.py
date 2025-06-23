@@ -4,6 +4,7 @@
 # it under the terms of the GNU General Public License v3.
 # See the LICENSE file for more details.
 
+import argparse
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QGroupBox, QFormLayout,
     QComboBox, QLineEdit, QPushButton, QHBoxLayout, QTextEdit, 
@@ -38,7 +39,7 @@ class OverviewPage(QWidget):
         self.setup_ui()
         self.populate_qemu_binaries()
         self.bind_signals()
-        self.qemu_direct_parse(args_list=None)
+        self.qemu_direct_parse(None)
         self.qemu_reverse_parse()
 
     def setup_ui(self):
@@ -162,10 +163,9 @@ class OverviewPage(QWidget):
             extra_args = cfg.get("extra_args", "")
 
             self.qemuargs_output.setPlainText(" ".join(qemu_args) if isinstance(qemu_args, list) else qemu_args)
-            self.qemuextraargs_output.setPlainText(" \\\n".join(extra_args) if isinstance(extra_args, list) else extra_args)
-            hardware = self.app_context.get_page("hardware")            
-            if hardware:
-                hardware.update_qemu_helper()
+            self.qemuextraargs_output.setPlainText(" \\\n".join(extra_args) if isinstance(extra_args, list) else extra_args)            
+            if self.hardware_page:
+                self.hardware_page.update_qemu_helper()
 
         finally:
             self._internal_text_change = False
@@ -241,47 +241,35 @@ class OverviewPage(QWidget):
         except Exception as e:
             self.console_output.append(f"Failed to launch QEMU: {e}")
 
-    def update_qemu_args(self, args_list):
-        self._internal_text_change = True
-        try:
-            with self.app_context.signal_blocker():
-                if not args_list:
-                    args_list = []
+    def update_qemu_args(self, args: list[str]):
+        if not args:
+            args = []
 
-                recognized_flags = {
-                    "-cpu", "-m", "-smp", "-machine", "-accel", "-k", "-M",
-                    "-usb", "-rtc", "-audiodev", "-display", "-nodefaults", "-boot"
-                }
-                parsed_main = []
-                parsed_extra = []
+        compacted = []
+        it = iter(args)
+        while True:
+            try:
+                arg = next(it)
+            except StopIteration:
+                break
 
-                i = 0
-                while i < len(args_list):
-                    arg = args_list[i]
-                    if arg in recognized_flags:
-                        parsed_main.append(arg)
-                        if i + 1 < len(args_list) and not args_list[i + 1].startswith("-"):
-                            parsed_main.append(args_list[i + 1])
-                            i += 1
+            if arg.startswith("-") and not "=" in arg:
+                try:
+                    val = next(it)
+                    if val.startswith("-"):
+                        compacted.append(arg)
+                        compacted.append(val)
                     else:
-                        parsed_extra.append(arg)
-                    i += 1
+                        compacted.append(f"{arg} {val}")
+                except StopIteration:
+                    compacted.append(arg)
+            else:
+                compacted.append(arg)
 
-                self.app_context.update_config({
-                    "qemu_args": parsed_main,
-                    "extra_args": parsed_extra
-                })
+        self.qemuargs_output.blockSignals(True)
+        self.qemuargs_output.setPlainText(" \\\n".join(compacted))
+        self.qemuargs_output.blockSignals(False)
 
-                self.qemuargs_output.blockSignals(True)
-                self.qemuargs_output.setPlainText(" \\\n".join(parsed_main))
-                self.qemuargs_output.blockSignals(False)
-
-                self.qemuextraargs_output.blockSignals(True)
-                self.qemuextraargs_output.setPlainText(" \\\n".join(parsed_extra))
-                self.qemuextraargs_output.blockSignals(False)
-
-        finally:
-            self._internal_text_change = False
 
     def _on_args_changed(self):
         if self._internal_text_change:
@@ -293,18 +281,13 @@ class OverviewPage(QWidget):
         args = []
 
         try:
-            # 1. Se houver texto em qemuargs, processa
             if raw:
-                cmd_clean = raw.replace("\\\n", " ").replace("\n", " ")
-                args += shlex.split(cmd_clean)
-
-            # 2. Se houver texto em extra_args, processa também
+                args += self.preprocess_qemu_command(raw)
             if extra_raw:
-                args += shlex.split(extra_raw)
+                args += self.preprocess_qemu_command(extra_raw)
 
             self.app_context.qemu_args_pasted.emit(args)
 
-            # 3. Se nada foi passado (tudo vazio), limpa o config
             if not args:
                 self.app_context.update_config({
                     "qemu_args": [],
@@ -322,47 +305,46 @@ class OverviewPage(QWidget):
 
 # Dentro do OverviewPage, substitua:
 
-    def qemu_direct_parse(self, args_list: list[str]):
-        from shlex import split
-        from textwrap import dedent
-
-        if isinstance(args_list, str):
-            args_list = args_list.replace("\\\n", " ").replace("\\\r\n", " ").strip()
-            args_list = split(args_list)
+    def qemu_direct_parse(self, cmdline: str | list[str]) -> list[str]:
+        # raw_args pode ser string com \n e barras ou lista já
+        if isinstance(cmdline, str):
+            args_list = self.app_context.split_shell_command(cmdline)
+        else:
+            args_list = cmdline or []
 
         remaining = args_list
         if self.hardware_page:
             remaining = self.hardware_page.qemu_direct_parse(remaining)
         if self.storage_page:
             remaining = self.storage_page.qemu_direct_parse(remaining)
-        self.update_qemu_args(remaining)
+
+        # Atualiza a caixa de texto de args não tratados (extraargs)
+        formatted = self.app_context.format_shell_command(remaining)
+        self.qemuextraargs_output.setPlainText(" \\\n".join(formatted))
+
 
     def qemu_reverse_parse(self) -> list[str]:
         args = []
         if self.hardware_page:
             args += self.hardware_page.qemu_reverse_parse()
+        if self.storage_page:
             args += self.storage_page.qemu_reverse_parse_args()
 
         extra_raw = self.qemuextraargs_output.toPlainText().strip()
         if extra_raw:
             try:
-                args += shlex.split(extra_raw)
+                args += self.app_context.split_shell_command(extra_raw)
             except Exception as e:
                 print(f"Erro ao fazer parse dos argumentos extras: {e}")
 
+        formatted = self.app_context.format_shell_command(args)
+
         self.qemuargs_output.blockSignals(True)
-        self.qemuargs_output.setPlainText(" \\\n".join(args))
+        self.qemuargs_output.setPlainText(" \\\n".join(formatted))
         self.qemuargs_output.blockSignals(False)
 
         return args
-    
-    def preprocess_qemu_command(raw_str: str) -> list[str]:
-        # Remove quebras de linha com contrabarra e junta tudo numa linha só
-        single_line = raw_str.replace("\\\n", " ").replace("\\\r\n", " ").strip()
-        # Agora usa shlex.split para quebrar em tokens corretamente
-        tokens = shlex.split(single_line)
-        return tokens
 
-    
+
     
  

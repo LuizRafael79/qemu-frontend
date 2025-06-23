@@ -6,6 +6,7 @@
 
 from PyQt5.QtCore import QObject, pyqtSignal
 import shlex
+import re
 from contextlib import contextmanager
 from app.utils.qemu_helper import QemuHelper, QemuInfoCache
 
@@ -89,13 +90,55 @@ class AppContext(QObject):
         finally:
             self.block_all_signals(False)
 
-    # ---------- Utilitário ----------
+    # ---------- Utilitários ----------
 
-    def split_shell_command(self, cmdline_str):
+    def split_shell_command(self, cmdline_str: str | list[str]) -> list[str]:
+        """
+        Divide uma linha de comando shell QEMU em lista de argumentos.
+        Suporta string com quebras de linha usando '\\' e espaços.
+        Usa shlex para respeitar aspas e escapes.
+        """
         if isinstance(cmdline_str, list):
             cmdline_str = ' '.join(cmdline_str)
-        
-        # Substitui \ seguido de \n (ou \r\n) por espaço, e depois normaliza TUDO em uma única linha
-        cleaned = cmdline_str.replace("\\\n", " ").replace("\\\r\n", " ")
-        cleaned = re.sub(r"[\r\n]+", " ", cleaned)  # Remove qualquer quebra de linha que sobrou
-        return shlex.split(cleaned.strip())
+
+        cleaned = re.sub(r"\\\s*\n", " ", cmdline_str)
+        cleaned = re.sub(r"[\r\n]+", " ", cleaned)
+
+        try:
+            return shlex.split(cleaned.strip())
+        except Exception as e:
+            print(f"[split_shell_command] erro ao fazer split: {e}")
+            return []
+
+    def format_shell_command(self, args: list[str]) -> list[str]:
+        """
+        Recebe lista de argumentos e retorna lista formatada para visualização
+        tipo shell, juntando flags com seus valores na mesma linha para facilitar edição.
+        Cada item na lista representa uma linha na visualização.
+        Exemplo:
+        ['-m 2048', '-cpu host', '-usb']
+        """
+        formatted = []
+        it = iter(args)
+
+        while True:
+            try:
+                arg = next(it)
+            except StopIteration:
+                break
+
+            if arg.startswith("-"):
+                try:
+                    val = next(it)
+                    if val.startswith("-"):
+                        formatted.append(arg)
+                        # devolve o val para o iterador
+                        it = iter([val] + list(it))
+                    else:
+                        formatted.append(f"{arg} {val}")
+                except StopIteration:
+                    formatted.append(arg)
+            else:
+                formatted.append(arg)
+
+        return formatted

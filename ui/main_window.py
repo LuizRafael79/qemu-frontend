@@ -214,6 +214,8 @@ class MainWindow(QWidget):
 
             self.overview_page.load_config_to_ui()
 
+            self.hardware_page.update_qemu_helper()
+
             print("Configuração carregada com sucesso!")
 
         except Exception as e:

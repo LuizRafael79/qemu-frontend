@@ -55,7 +55,6 @@ class HardwarePage(QWidget):
 
         self._setup_ui()
         self.bind_signals()
-        self.update_qemu_helper()
         self.hardware_config_changed.connect(self.app_context.config_changed.emit)
 
         self.load_config_to_ui()
@@ -545,54 +544,88 @@ class HardwarePage(QWidget):
         qemu_exec = config.get("qemu_executable", "").strip()
         if self.qemu_helper is None or (self.qemu_helper.qemu_path != qemu_exec):
             self.update_qemu_helper()
-
-        #self.load_config_to_ui()
         self._loading_config = False
 
         # === Parse Direct / Reverse ===
 
-    def qemu_direct_parse(self, args):
-        it = iter(args)
-        for arg in it:
+    def qemu_direct_parse(self, args_list: list[str]) -> list[str]:
+        it = iter(args_list)
+        leftover = []
+
+        while True:
+            try:
+                arg = next(it)
+            except StopIteration:
+                break
+
             if arg == "-cpu":
                 val = next(it, None)
                 if val:
                     self.cpu_combo.setCurrentText(val)
+                continue
+
             elif arg == "-smp":
                 val = next(it, None)
                 if val:
                     try:
-                        smp_num = int(val.split(",")[0])
-                        self.smp_cpu_spinbox.setValue(smp_num)
+                        if "=" in val:
+                            parts = val.split(",")
+                            for part in parts:
+                                k, v = part.split("=")
+                                v_int = int(v)
+                                if k == "sockets":
+                                    self.smp_sockets_spinbox.setValue(v_int)
+                                elif k == "cores":
+                                    self.smp_cores_spinbox.setValue(v_int)
+                                elif k == "threads":
+                                    self.smp_threads_spinbox.setValue(v_int)
+                            total = (
+                                self.smp_sockets_spinbox.value()
+                                * self.smp_cores_spinbox.value()
+                                * self.smp_threads_spinbox.value()
+                            )
+                            self.smp_cpu_spinbox.setValue(total)
+                        else:
+                            smp_num = int(val)
+                            self.smp_cpu_spinbox.setValue(smp_num)
                     except:
                         pass
+                continue
+
             elif arg == "-machine":
                 val = next(it, None)
                 if val:
                     self.machine_combo.setCurrentText(val)
+                continue
+
             elif arg == "-m":
                 val = next(it, None)
-                if val and val.isdigit():
+                if val:
                     self.mem_combo.setCurrentText(val)
+                continue
+
             elif arg == "-bios":
                 val = next(it, None)
                 if val:
                     self.bios_lineedit.setText(val)
+                continue
+
             elif arg == "-boot":
                 val = next(it, None)
                 if val:
                     self.boot_combo.setCurrentText(val)
-            # mais args se quiser
-            else:
-                pass  # ignorar por enquanto
+                continue
 
-    def qemu_reverse_parse(self):
-        """
-        Generate QEMU command line args based on current UI state.
-        """
+            else:
+                leftover.append(arg)
+
+        return leftover
+
+
+    def qemu_reverse_parse(self) -> list[str]:
         args = []
 
-        cpu_val = self.cpu_combo.currentText()
+        cpu_val = self.cpu_combo.currentText().strip()
         if cpu_val and cpu_val != DEFAULT_CPU:
             args += ["-cpu", cpu_val]
 
@@ -606,11 +639,11 @@ class HardwarePage(QWidget):
             smp_val = str(self.smp_cpu_spinbox.value())
             args += ["-smp", smp_val]
 
-        machine_val = self.machine_combo.currentText()
+        machine_val = self.machine_combo.currentText().strip()
         if machine_val:
             args += ["-machine", machine_val]
 
-        mem_val = self.mem_combo.currentText()
+        mem_val = self.mem_combo.currentText().strip()
         if mem_val:
             args += ["-m", mem_val]
 
@@ -618,18 +651,18 @@ class HardwarePage(QWidget):
             args += ["-enable-kvm"]
 
         if self.smp_passthrough_checkbox.isChecked():
-            # Evitar conflito com -cpu e -smp? Decida prioridade
             args += ["-cpu", "host"]
 
         bios_val = self.bios_lineedit.text().strip()
         if bios_val:
             args += ["-bios", bios_val]
 
-        boot_val = self.boot_combo.currentText()
+        boot_val = self.boot_combo.currentText().strip()
         if boot_val:
             args += ["-boot", boot_val]
 
-        return args     
+        return args
+     
         
 
 
