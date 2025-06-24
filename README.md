@@ -1,47 +1,50 @@
 # QEMU Frontend GUI (PyQt5)
 
-Uma interface gráfica leve e modular para criar, configurar e executar VMs usando QEMU via linha de comando.
+A lightweight and modular GUI for creating, configuring and running VMs using QEMU via the command line.
 
-## 🚀 Funcionalidades
+## 🚀 Features
 
-- Detecção automática de binários QEMU instalados
-- Suporte a múltiplas arquiteturas
-- Edição visual de parâmetros de hardware:
-  - CPUs, topology, KVM
-  - Tipo de máquina e memória
-  - Boot, BIOS e extras (RTC, USB, etc.)
-- Interface modular separada por páginas (Hardware, Storage, Network, etc.)
-- Cache inteligente para agilizar carregamento e parse
-- Geração reversa de argumentos QEMU (`-cpu`, `-machine`, `-smp` etc.)
+- Visual that matches Gnome, using Font Awesome
+- Automatic detection of installed QEMU binaries
+- Support for multiple architectures
+- Visual editing of hardware parameters:
+- CPUs, topology, KVM
+- Machine type and memory
+- Boot, BIOS and extras (RTC, USB, etc.)
+- Modular interface separated by pages (Hardware, Storage, Network, etc.)
+- Smart caching to speed up loading and parsing
+- Reverse generation of QEMU arguments (`-cpu`, `-machine`, `-smp` etc.)
 
-## 🧰 Requisitos
+## 🧰 Requirements
 
 - Python 3.8+
-- QEMU instalado e acessível via terminal
-- Dependências Python:
+- QEMU installed and accessible via terminal
+- Python dependencies:
 
 ```bash
-pip install -r requirements.txt
+Arch Linux - pacman -S python-qtawesome
+Ohters Distros - pip install -r requirements.txt
 ```
-### ⚠️ O projeto atualmente é testado principalmente em Linux.
 
-## 📂 Estrutura
+### ⚠️ The project is currently tested mainly on Linux.
+
+## 📂 Structure
 
 ```bash
 | qemu-frontend/
 ├── app/
-│   ├── context/           # AppContext centralizado
-│   ├── utils/             # qemu_helper e cache
+│      ├── context/ # Centralized AppContext
+│      ├── utils/ # qemu_helper and cache
 ├── ui/
-│   ├── pages/             # Páginas modulares da interface
-│   ├── styles/            # Estilos e temas
-│   ├── widgets/           # Widgets (Menu lateral)
-├── main.py                # Ponto de entrada
-├── config.json            # Arquivo de configuração persistente
+│     ├── pages/ # Modular frontend pages
+│     ├── styles/ # Styles and themes
+│     ├── widgets/ # Widgets (Side menu)
+├── main.py # Entry point
+├── config.json # Persistent configuration file
 └── .gitignore
 ```
 
-## 🖥️ Como executar
+## 🖥️ How to run
 ```bash
 python main.py
 ```
