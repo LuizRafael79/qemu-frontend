@@ -9,10 +9,10 @@ from PyQt5.QtWidgets import (
     QFileDialog, QLineEdit, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
-from app.utils.qemu_helper import QemuHelper, QemuInfoCache
+from app.utils.qemu_helper import QemuConfig
 from app.context.app_context import AppContext
 import os
-import re
+from typing import Any
 
 class DriveWidget(QWidget):
     drive_changed = pyqtSignal()
@@ -21,42 +21,46 @@ class DriveWidget(QWidget):
     def __init__(self, drive_id, parent=None):
         super().__init__(parent)
         self.drive_id = drive_id
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout = QHBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText(f"Caminho do arquivo para {drive_id}")
+
         self.path_edit.setToolTip("Especifique o caminho para a imagem de disco (.qcow2, .img, .iso, etc.).")
-        self.path_edit.textChanged.connect(self.drive_changed.emit)
-        self.layout.addWidget(self.path_edit)
+        self.path_edit.textChanged.connect(self.on_drive_changed)
+        self.main_layout.addWidget(self.path_edit)
 
         self.browse_button = QPushButton("Procurar")
         self.browse_button.clicked.connect(self._browse_file)
-        self.layout.addWidget(self.browse_button)
+        self.main_layout.addWidget(self.browse_button)
 
         self.is_cdrom_checkbox = QCheckBox("CD-ROM")
         self.is_cdrom_checkbox.setToolTip("Marque se este drive for um CD-ROM.")
         self.is_cdrom_checkbox.toggled.connect(lambda checked: self.update_format_visibility(emit_signal=True))
-        self.is_cdrom_checkbox.toggled.connect(self.drive_changed.emit)
-        self.layout.addWidget(self.is_cdrom_checkbox)
+        self.is_cdrom_checkbox.toggled.connect(self.on_drive_changed)
+        self.main_layout.addWidget(self.is_cdrom_checkbox)
 
         self.format_combo = QComboBox()
         self.format_combo.setToolTip("Formato da imagem de disco. 'raw' é o padrão para a maioria.")
         self.format_combo.addItems(["qcow2", "raw", "vdi", "vmdk"])
-        self.format_combo.currentTextChanged.connect(self.drive_changed.emit)
-        self.layout.addWidget(self.format_combo)
+        self.format_combo.currentTextChanged.connect(self.on_drive_changed)
+        self.main_layout.addWidget(self.format_combo)
 
         self.if_combo = QComboBox()
         self.if_combo.setToolTip("Tipo de interface do drive (controladora).")
         self.if_combo.addItems(["none", "ide", "scsi", "sd", "mtd", "virtio"])
-        self.if_combo.currentTextChanged.connect(self.drive_changed.emit)
-        self.layout.addWidget(self.if_combo)
+        self.if_combo.currentTextChanged.connect(self.if_combo_changed) # Alterado aqui para lógica mais específica
+        self.main_layout.addWidget(self.if_combo)
 
         self.remove_button = QPushButton("Remover")
         self.remove_button.clicked.connect(self._remove_self)
-        self.layout.addWidget(self.remove_button)
+        self.main_layout.addWidget(self.remove_button)
 
         self.update_format_visibility(emit_signal=False)
+
+    def on_drive_changed(self, *args, **kwargs): 
+        self.drive_changed.emit() # type: ignore
 
     def _browse_file(self):
         if self.is_cdrom_checkbox.isChecked():
@@ -71,35 +75,51 @@ class DriveWidget(QWidget):
             if ext == ".iso":
                 self.is_cdrom_checkbox.setChecked(True)
             elif ext in [".qcow2", ".vdi", ".vmdk"]:
-                self.format_combo.setCurrentText(ext[1:])  # remove o ponto
+                # Garante que o formato seja setado apenas se o combo tiver a opção
+                if self.format_combo.findText(ext[1:]) != -1:
+                    self.format_combo.setCurrentText(ext[1:])
+            self.on_drive_changed() # Emite sinal após atualização pelo browse
 
     def update_format_visibility(self, emit_signal=True):
         is_cd = self.is_cdrom_checkbox.isChecked()
         self.format_combo.setVisible(not is_cd)
         if is_cd:
-            self.if_combo.setCurrentText("none")
+            # Se for CD-ROM, a interface IDE é comum. 'none' para -if do -drive
+            # mas o -device correspondente geralmente será ide-cd.
+            # Vamos manter o combo de interface para o usuário escolher o controlador do device.
+            pass
         elif self.format_combo.currentText() == "iso":
-            self.format_combo.setCurrentText("qcow2")
+            # Isso impede que "iso" fique selecionado no combo de formato para discos rígidos
+            # Se a extensão do arquivo não for .iso e ele não for um cdrom, reverte para qcow2
+            current_path = self.path_edit.text().strip()
+            ext = os.path.splitext(current_path)[1].lower()
+            if ext != ".iso" and self.format_combo.currentText() == "iso":
+                 self.format_combo.setCurrentText("qcow2") # Fallback padrão
 
         if emit_signal:
-            self.drive_changed.emit()
+            self.on_drive_changed()
+
+    def if_combo_changed(self, text):
+        # Lógica adicional, se necessária, quando a interface muda
+        self.on_drive_changed()
 
     def _remove_self(self):
-        self.drive_removed.emit(self.drive_id)
+        self.drive_removed.emit(self.drive_id) # type: ignore
 
     def get_drive_data(self):
+        # Adapta para retornar dados no formato que QemuConfig espera para -drive e -device
         path = self.path_edit.text().strip()
         if not path:
             return None
 
         is_cdrom = self.is_cdrom_checkbox.isChecked()
-        media_type = 'cdrom' if is_cdrom else 'disk'
-
+        interface_type = self.if_combo.currentText() # Ex: 'ide', 'virtio', 'scsi', 'none'
+        
         drive_data = {
-            'id': self.drive_id,
             'file': path,
-            'if': self.if_combo.currentText(),
-            'media': media_type
+            'id': self.drive_id,
+            'if': interface_type, # QemuConfig usa 'if' para inferir o -device
+            'media': 'cdrom' if is_cdrom else 'disk'
         }
         if not is_cdrom:
             drive_data['format'] = self.format_combo.currentText()
@@ -107,29 +127,47 @@ class DriveWidget(QWidget):
         return drive_data
 
     def set_drive_data(self, data):
-        # Bloqueia sinais dos widgets durante o set
-        for w in [self.path_edit, self.is_cdrom_checkbox, self.format_combo, self.if_combo]:
-            w.blockSignals(True)
+        # Bloqueia sinais dos widgets durante o set para evitar loops
+        # Use um contexto de bloqueio para garantir que os sinais sejam reativados
+        with self.block_signals_context([self.path_edit, self.is_cdrom_checkbox, self.format_combo, self.if_combo]):
+            self.path_edit.setText(data.get('file', ''))
 
-        self.path_edit.setText(data.get('file', ''))
+            is_cdrom = (data.get('media', 'disk') == 'cdrom')
+            self.is_cdrom_checkbox.setChecked(is_cdrom)
 
-        is_cdrom = (data.get('media', 'disk') == 'cdrom')
-        self.is_cdrom_checkbox.setChecked(is_cdrom)
+            if not is_cdrom:
+                format_val = data.get('format', 'qcow2')
+                if self.format_combo.findText(format_val) != -1:
+                    self.format_combo.setCurrentText(format_val)
+                else:
+                    self.format_combo.setCurrentText("qcow2") # Fallback padrão para formato
+            else:
+                # Se é CD-ROM, garantir que o formato combo esteja em um estado consistente,
+                # mesmo que invisível. Pode ser útil para lógica interna.
+                if self.format_combo.findText("raw") != -1: # ISOs geralmente são tratadas como raw
+                    self.format_combo.setCurrentText("raw")
 
-        if not is_cdrom:
-            format_val = data.get('format', 'qcow2')
-            if self.format_combo.findText(format_val) != -1:
-                self.format_combo.setCurrentText(format_val)
 
-        if_val = data.get('if', 'none')
-        if self.if_combo.findText(if_val) != -1:
-            self.if_combo.setCurrentText(if_val)
+            # A interface 'if' vem do -drive OU do -device, o parser deve normalizar isso.
+            # Aqui, setamos a interface exibida na UI.
+            if_val = data.get('if', 'none') # QemuConfig.all_args['drive'][x]['if']
+            if self.if_combo.findText(if_val) != -1:
+                self.if_combo.setCurrentText(if_val)
+            else:
+                self.if_combo.setCurrentText("none") # Fallback padrão para interface
 
-        self.update_format_visibility(emit_signal=False)
+            self.update_format_visibility(emit_signal=False)
 
-        for w in [self.path_edit, self.is_cdrom_checkbox, self.format_combo, self.if_combo]:
-            w.blockSignals(False)
-
+    # Novo método para bloquear sinais de forma segura
+    def block_signals_context(self, widgets): #type ignore
+        class SignalBlocker: #type ignore
+            def __enter__(self_blocker): #type ignore
+                for w in widgets: #type ignore
+                    w.blockSignals(True) #type ignore
+            def __exit__(self_blocker, exc_type, exc_val, exc_tb): #type ignore
+                for w in widgets: #type ignore
+                    w.blockSignals(False) #type ignore
+        return SignalBlocker() #type ignore
 
 class FloppyWidget(QWidget):
     floppy_changed = pyqtSignal()
@@ -138,24 +176,24 @@ class FloppyWidget(QWidget):
     def __init__(self, unit, parent=None):
         super().__init__(parent)
         self.unit = unit
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout = QHBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.label = QLabel(f"Unidade {unit}:")
-        self.layout.addWidget(self.label)
+        self.main_layout.addWidget(self.label)
 
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText(f"Caminho do arquivo para a unidade {unit}")
-        self.path_edit.textChanged.connect(self.floppy_changed.emit)
-        self.layout.addWidget(self.path_edit)
+        self.path_edit.textChanged.connect(self.on_floppy_changed)
+        self.main_layout.addWidget(self.path_edit)
 
         self.browse_button = QPushButton("Procurar")
         self.browse_button.clicked.connect(self._browse_file)
-        self.layout.addWidget(self.browse_button)
+        self.main_layout.addWidget(self.browse_button)
 
         self.remove_button = QPushButton("Remover")
         self.remove_button.clicked.connect(self._remove_self)
-        self.layout.addWidget(self.remove_button)
+        self.main_layout.addWidget(self.remove_button)
 
     def _browse_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -166,35 +204,43 @@ class FloppyWidget(QWidget):
         )
         if file_path:
             self.path_edit.setText(file_path)
+            self.on_floppy_changed() # Emite sinal após atualização pelo browse
+
+    def on_floppy_changed(self, *args, **kwargs):
+        self.floppy_changed.emit() # type: ignore
 
     def _remove_self(self):
-        self.floppy_removed.emit(self.unit)
+        self.floppy_removed.emit(self.unit) #type: ignore
 
     def get_floppy_data(self):
         path = self.path_edit.text().strip()
         if not path:
             return None
-        return {'unit': self.unit, 'file': path}
+        # Retorna o dicionário no formato que QemuConfig espera para floppies
+        return {'file': path, 'unit': self.unit}
 
     def set_floppy_data(self, data):
+        # Bloqueia sinais dos widgets durante o set para evitar loops
         self.path_edit.blockSignals(True)
         self.path_edit.setText(data.get('file', ''))
         self.path_edit.blockSignals(False)
 
 
 class StoragePage(QWidget):
-    storage_config_changed = pyqtSignal()
+    storage_config_changed = pyqtSignal() # Sinal para notificar o AppContext sobre mudanças na StoragePage
 
     def __init__(self, app_context: AppContext):
         super().__init__()
         self.app_context = app_context
+        self.qemu_config = self.app_context.qemu_config
         self.drive_widgets = []
         self.floppy_widgets = []
         self.drive_count = 0
         self.floppy_count = 0
-        self.loading = False
+        self.loading = False # Flag para controlar o carregamento programático da UI
 
         self.setup_ui()
+        self.bind_signals()
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -220,271 +266,66 @@ class StoragePage(QWidget):
         self.floppy_container = QVBoxLayout()
         self.main_layout.addLayout(self.floppy_container)
 
-    def bind_signals(self):
-        self.app_context.config_loaded.connect(self.load_config_to_ui)
-        self.storage_config_changed.connect(self.app_context.config_changed.emit)
+    def bind_signals(self):        
+        # Conecta o sinal de atualização da QemuConfig do AppContext para o parse reverso
+        self.app_context.qemu_config_updated.connect(self.load_from_qemu_config)
 
-
-    # ---------- Parse direto CLI string -> widgets ----------
-
-    def qemu_direct_parse(self, cmdline_str):
-        tokens = self.app_context.split_shell_command(cmdline_str)
-
-        self.loading = True
-        self.clear_all_drives()
-        self.clear_all_floppies()
-
-        drive_map = {}
-        device_map = {}
-        extra_args = []
-
-        i = 0
-        while i < len(tokens):
-            arg = tokens[i]
-
-            if arg == "-drive" and i + 1 < len(tokens):
-                drive_str = tokens[i + 1]
-                parts = drive_str.split(",")
-                info = {
-                    "file": "",
-                    "id": "",
-                    "if": "none",
-                    "readonly": False,
-                    "format": "raw",
-                    "unit": None,
-                    "media": "disk",
-                }
-                for p in parts:
-                    if "=" not in p:
-                        continue
-                    k, v = p.split("=", 1)
-                    if k == "file":
-                        info["file"] = v
-                    elif k == "id":
-                        info["id"] = v
-                    elif k == "if":
-                        info["if"] = v
-                    elif k == "readonly":
-                        info["readonly"] = (v.lower() == "on")
-                    elif k == "format":
-                        info["format"] = v
-                    elif k == "unit":
-                        try:
-                            info["unit"] = int(v)
-                        except Exception:
-                            info["unit"] = None
-                    elif k == "media":
-                        info["media"] = v
-                drive_map[info["id"]] = info
-                i += 2
-                continue
-
-            elif arg == "-device" and i + 1 < len(tokens):
-                dev_str = tokens[i + 1]
-                m = re.search(r"drive=([^, ]+)", dev_str)
-                if m:
-                    drive_id = m.group(1)
-                    dev_type = dev_str.lower().split(',')[0].strip()
-
-                    interface = "none"
-                    media = "disk"
-
-                    if "cd" in dev_type:
-                        media = "cdrom"
-                    if "ide" in dev_type:
-                        interface = "ide"
-                    elif "scsi" in dev_type:
-                        interface = "scsi"
-                    elif "virtio" in dev_type:
-                        interface = "virtio"
-                    elif "sd" in dev_type:
-                        interface = "sd"
-                    elif "mtd" in dev_type:
-                        interface = "mtd"
-
-                    device_map[drive_id] = {
-                        "media": media,
-                        "if": interface,
-                        "device_type": dev_type
-                    }
-                else:
-                    extra_args.append(arg)
-                    extra_args.append(tokens[i + 1])
-                i += 2
-                continue
-
-            else:
-                extra_args.append(arg)
-                i += 1
-
-        scsi_needed = False
-        virtio_needed = False
-
-        for did, info in drive_map.items():
-            dev_info = device_map.get(did, {})
-
-            media = dev_info.get("media", info.get("media", "disk"))
-            interface = dev_info.get("if") or "none"
-
-            if interface == "scsi":
-                scsi_needed = True
-            if interface == "virtio":
-                virtio_needed = True
-
-            if interface == "floppy" or did.startswith("floppy"):
-                self._add_floppy_without_signals({
-                    "unit": info.get("unit", 0),
-                    "file": info.get("file", "")
-                })
-            else:
-                file = info.get("file", "")
-                ext = file.split('.')[-1].lower() if '.' in file else ''
-                fmt = info.get("format", "raw")
-
-                if media == "cdrom":
-                    fmt = "raw"
-                elif ext == "qcow2":
-                    fmt = "qcow2"
-                else:
-                    fmt = "raw"
-
-                self._add_drive_without_signals({
-                    "file": file,
-                    "id": did,
-                    "if": interface,
-                    "media": media,
-                    "format": fmt,
-                })
-
-        self.loading = False
-        self._on_storage_changed()
-
-        self.app_context.update_config({
-            "scsi_controller_needed": scsi_needed,
-            "virtio_controller_needed": virtio_needed,
-            "extra_args": extra_args
-        })
-        return extra_args
-
-    def qemu_reverse_parse_args(self):
-        args = []
-
-        for index, widget in enumerate(self.drive_widgets):
-            data = widget.get_drive_data()
-            if not data:
-                continue
-
-            file = data['file']
-            drive_id = data['id']
-            interface = data['if']
-            media = data['media']
-            ext = file.split('.')[-1].lower() if '.' in file else ''
-
-            # Detectar formato
-            if media == 'cdrom':
-                fmt = 'raw'  # CD-ROMs geralmente são .iso -> raw
-            elif ext == 'qcow2':
-                fmt = 'qcow2'
-            else:
-                fmt = 'raw'
-
-            # Monta -drive
-            parts = [
-                f"file={file}",
-                f"id={drive_id}",
-                f"if=none",  # Sempre "none", interface vai no -device
-                f"format={fmt}"
-            ]
-            if media == 'cdrom':
-                parts.append("media=cdrom")
-
-            args.append("-drive")
-            args.append(",".join(parts))
-
-            # Monta -device correspondente
-            dev_type = f"{interface}-cd" if media == "cdrom" else f"{interface}-hd"
-            args.append("-device")
-            args.append(f"{dev_type},drive={drive_id}")
-
-        for widget in self.floppy_widgets:
-            data = widget.get_floppy_data()
-            if not data:
-                continue
-            args.append("-drive")
-            args.append(f"file={data['file']},if=floppy,unit={data['unit']}")
-
-        return args        
-  
-    def args_list_to_multiline_str(self, args_list):
-        lines = []
-        i = 0
-        while i < len(args_list):
-            part = args_list[i]
-            # Caso 1: último argumento
-            if i + 1 >= len(args_list):
-                lines.append(f"{part} \\")
-                break
-            next_part = args_list[i + 1]
-            # Caso 2: próximo é valor que não começa com '-' e o atual começa com '-'
-            if part.startswith("-") and not next_part.startswith("-"):
-                lines.append(f"{part} {next_part} \\")
-                i += 2
-            else:
-                # Junta parte atual sozinho
-                lines.append(f"{part} \\")
-                i += 1
-        if lines:
-            lines[-1] = lines[-1].rstrip(" \\")  # Remove barra da última linha
-        return "\n".join(lines)
-
-  
     def _on_storage_changed(self):
-        if self.loading:
+        """
+        Chamado quando um DriveWidget ou FloppyWidget é alterado, adicionado ou removido.
+        Coleta os dados atuais e notifica o AppContext sobre a mudança.
+        """
+        if self.loading: # Evita que a página dispare sinais durante o carregamento programático
             return
-        drives = [w.get_drive_data() for w in self.drive_widgets if w.get_drive_data()]
-        floppies = [w.get_floppy_data() for w in self.floppy_widgets if w.get_floppy_data()]
+        
+        # Coleta os dados de todos os widgets de drive
+        current_drives_data = [w.get_drive_data() for w in self.drive_widgets if w.get_drive_data()]
+        
+        # Coleta os dados de todos os widgets de floppy
+        current_floppies_data = [w.get_floppy_data() for w in self.floppy_widgets if w.get_floppy_data()]
 
-        args = self.qemu_reverse_parse_args()
-        qemu_args_str = self.args_list_to_multiline_str(args)
-
-        self.app_context.update_config({
-            "drives": drives,
-            "floppies": floppies,
-            "qemu_args": qemu_args_str
-        })
-        self.storage_config_changed.emit()    
+        # Prepara o dicionário de atualização para o AppContext, usando as chaves esperadas pela QemuConfig
+        config_update = {
+            "drive": current_drives_data,  # Chave 'drive' para HDs/CDs
+            "floppy": current_floppies_data, # Chave 'floppy' para disquetes
+        }
+        
+        # Envia a atualização para o AppContext.
+        # O AppContext.update_qemu_config_from_page() irá mesclar esses dados
+        # com a QemuConfig existente e, por sua vez, emitirá qemu_config_updated.
+        self.qemu_config.update_qemu_config_from_page(config_update)
+        self.app_context.mark_modified()
+        
+        # O sinal storage_config_changed.emit() será acionado implicitamente
+        # pelo app_context.on_page_config_changed que é o slot para este sinal.
 
     def _connect_drive_signals(self, widget: DriveWidget):
-        widget.drive_changed.connect(self._on_storage_changed)
-        widget.drive_removed.connect(self._on_drive_removed)
+        widget.drive_changed.connect(self._on_storage_changed) #type: ignore
+        widget.drive_removed.connect(self._on_drive_removed) #type: ignore
 
     def _connect_floppy_signals(self, widget: FloppyWidget):
-        widget.floppy_changed.connect(self._on_storage_changed)
-        widget.floppy_removed.connect(self._on_floppy_removed)
+        widget.floppy_changed.connect(self._on_storage_changed) #type: ignore
+        widget.floppy_removed.connect(self._on_floppy_removed) #type: ignore
 
-    def add_drive(self, data=None):
+    def add_drive(self):
         drive_id = f"disk{self.drive_count}"
         self.drive_count += 1
         widget = DriveWidget(drive_id)
-        if data:
-            widget.set_drive_data(data)
         self._connect_drive_signals(widget)
         self.drive_widgets.append(widget)
         self.drive_container.addWidget(widget)
         widget.show()
-        self._on_storage_changed()
+        self._on_storage_changed() # Aciona a atualização da config após adicionar
 
-    def add_floppy(self, data=None):
+    def add_floppy(self):
         unit = self.floppy_count
         self.floppy_count += 1
         widget = FloppyWidget(unit)
-        if data:
-            widget.set_floppy_data(data)
         self._connect_floppy_signals(widget)
         self.floppy_widgets.append(widget)
         self.floppy_container.addWidget(widget)
         widget.show()
-        self._on_storage_changed()
+        self._on_storage_changed() # Aciona a atualização da config após adicionar
 
     def _remove_drive_by_id(self, drive_id):
         for widget in self.drive_widgets:
@@ -510,22 +351,10 @@ class StoragePage(QWidget):
     def _on_floppy_removed(self, unit):
         self._remove_floppy_by_unit(unit)
 
-    def _clear_all_widgets(self):
-        for w in self.drive_widgets:
-            w.setParent(None)
-            w.deleteLater()
-        self.drive_widgets.clear()
-        self.drive_count = 0
-
-        for w in self.floppy_widgets:
-            w.setParent(None)
-            w.deleteLater()
-        self.floppy_widgets.clear()
-        self.floppy_count = 0      
-
     def clear_all_drives(self):
         for widget in self.drive_widgets:
-            widget.drive_removed.disconnect(self._on_drive_removed)
+            widget.drive_changed.disconnect(self._on_storage_changed) # type: ignore
+            widget.drive_removed.disconnect(self._on_drive_removed) # type: ignore
             self.drive_container.removeWidget(widget)  # Remove do layout
             widget.setParent(None)
             widget.deleteLater()
@@ -534,6 +363,7 @@ class StoragePage(QWidget):
 
     def clear_all_floppies(self):
         for widget in self.floppy_widgets:
+            widget.floppy_changed.disconnect(self._on_storage_changed) # Desconecta para evitar triggers
             widget.floppy_removed.disconnect(self._on_floppy_removed)
             self.floppy_container.removeWidget(widget)  # Remove do layout
             widget.setParent(None)
@@ -541,45 +371,76 @@ class StoragePage(QWidget):
         self.floppy_widgets.clear()
         self.floppy_count = 0
 
-    def load_config_to_ui(self):
-        self.loading = True # Inicia o modo de carregamento da página
-        self.blockSignals(True)
-        self.clear_all_drives()
-        self.clear_all_floppies()
+    def load_from_qemu_config(self, qemu_config_obj: Any):
+        """
+        Popula a GUI da StoragePage com base nos argumentos QEMU parseados contidos no QemuConfig.
+        Este método será chamado pelo AppContext.qemu_config_updated.
+        """
+        self.loading = True # Inicia o modo de carregamento da página para bloquear sinais
+        
+        # Usa o contexto de bloqueio de sinais do AppContext para toda a operação de carregamento
+        with self.app_context.signal_blocker():
+            # Limpa todos os widgets existentes antes de carregar os novos
+            self.clear_all_drives()
+            self.clear_all_floppies()
 
-        for data in self.app_context.config.get("drives", []):
-            self._add_drive_without_signals(data)
+            qemu_args_dict = qemu_config_obj.get("all_args", [])
 
-        for data in self.app_context.config.get("floppies", []):
-            self._add_floppy_without_signals(data)
+            # Carrega drives (HDs/CDs)
+            parsed_drives_data = qemu_args_dict.get('drive', []) if isinstance(qemu_args_dict, dict) else [] 
+            for drive_entry in parsed_drives_data:
+                if isinstance(drive_entry, dict):
+                    # Adiciona o drive usando o método que não dispara sinais imediatamente
+                    self._add_drive_with_data_no_signal(drive_entry)
+
+            # Carrega floppies
+            parsed_floppies_data = qemu_args_dict.get('floppy', []) if isinstance(qemu_args_dict, dict) else []
+            for floppy_entry in parsed_floppies_data:
+                if isinstance(floppy_entry, dict):
+                    # Adiciona o floppy usando o método que não dispara sinais imediatamente
+                    self._add_floppy_with_data_no_signal(floppy_entry)
 
         self.loading = False # Finaliza o modo de carregamento da página
-        self.blockSignals(False)
+        
+        # Após carregar tudo, força uma atualização para garantir que a OverviewPage
+        # recalcule a linha de comando completa.
+        # Isso é importante porque os widgets foram atualizados sem disparar sinais individuais.
+        self.storage_config_changed.emit()
 
-    def _add_drive_without_signals(self, data):
-        drive_id = f"disk{self.drive_count}"
+    def _add_drive_with_data_no_signal(self, data: dict):
+        # Garante que o ID do drive seja único ou reutilizado se fornecido
+        drive_id = data.get('id')
+        if not drive_id:
+            drive_id = f"disk{self.drive_count}"
+            data['id'] = drive_id # Atualiza o dicionário de dados com o ID gerado
+
         self.drive_count += 1
         widget = DriveWidget(drive_id)
-        # bloqueia sinais para evitar disparos no load
-        for w in [widget.path_edit, widget.is_cdrom_checkbox, widget.format_combo, widget.if_combo]:
-            w.blockSignals(True)
-        widget.set_drive_data(data)
-        for w in [widget.path_edit, widget.is_cdrom_checkbox, widget.format_combo, widget.if_combo]:
-            w.blockSignals(False)
-        self._connect_drive_signals(widget)
+        widget.set_drive_data(data) # set_drive_data já bloqueia/desbloqueia sinais internos do widget
+        
+        self._connect_drive_signals(widget) # Conecta os sinais para futuras edições pelo usuário
         self.drive_widgets.append(widget)
         self.drive_container.addWidget(widget)
         widget.show()
 
-    def _add_floppy_without_signals(self, data):
-        unit = self.floppy_count
+    def _add_floppy_with_data_no_signal(self, data: dict):
+        # Garante que a unit do floppy seja única ou reutilizada se fornecida
+        unit = data.get('unit')
+        if unit is None: # unit pode ser 0
+            unit = self.floppy_count
+            data['unit'] = unit # Atualiza o dicionário de dados com a unit gerada
+
         self.floppy_count += 1
         widget = FloppyWidget(unit)
-        widget.path_edit.blockSignals(True)
-        widget.set_floppy_data(data)
-        widget.path_edit.blockSignals(False)
-        self._connect_floppy_signals(widget)
+        widget.set_floppy_data(data) # set_floppy_data já bloqueia/desbloqueia sinais internos do widget
+
+        self._connect_floppy_signals(widget) # Conecta os sinais para futuras edições pelo usuário
         self.floppy_widgets.append(widget)
         self.floppy_container.addWidget(widget)
         widget.show()
 
+    # O método 'generate_qemu_args_and_names' foi removido desta página.
+    # A geração da linha de comando QEMU a partir da QemuConfig é agora responsabilidade
+    # do método 'to_qemu_args_string' da classe QemuConfig, que é chamado pela OverviewPage.
+    # A StoragePage agora apenas fornece os dados em formato de dicionário para o AppContext,
+    # que os armazena na QemuConfig.
