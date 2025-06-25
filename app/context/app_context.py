@@ -5,7 +5,6 @@
 # See the LICENSE file for more details.
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 import shlex
 import re
 import json
@@ -139,14 +138,4 @@ class AppContext(QObject):
             print("AppContext: Configuração salva com sucesso.")
         except Exception as e:
             print(f"AppContext: Erro ao salvar configuração: {e}")
-            raise # Re-lança a exceção para que a MainWindow possa lidar com ela (ex: QMessageBox)
-
-    def append_colored_text(self, text, color):
-        self.overview_page = self.get_page("Overview")
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        cursor = self.overview_page.console_output.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        cursor.insertText(text + '\n', fmt)
-        self.overview_page.console_output.setTextCursor(cursor)
-        self.overview_page.console_output.ensureCursorVisible()     
+            raise # Re-lança a exceção para que a MainWindow possa lidar com ela (ex: QMessageBox)  
