@@ -159,16 +159,15 @@ class DriveWidget(QWidget):
             self.update_format_visibility(emit_signal=False)
 
     # Novo método para bloquear sinais de forma segura
-    def block_signals_context(self, widgets): #type ignore
-        class SignalBlocker: #type ignore
-            def __enter__(self_blocker): #type ignore
-                for w in widgets: #type ignore
-                    w.blockSignals(True) #type ignore
-            def __exit__(self_blocker, exc_type, exc_val, exc_tb): #type ignore
-                for w in widgets: #type ignore
-                    w.blockSignals(False) #type ignore
-        return SignalBlocker() #type ignore
-
+    def block_signals_context(self, widgets):
+        class SignalBlocker: 
+            def __enter__(self_blocker): 
+                for w in widgets: 
+                    w.blockSignals(True) 
+            def __exit__(self_blocker, exc_type, exc_val, exc_tb): 
+                    w.blockSignals(False) #type: ignore
+        return SignalBlocker() 
+    
 class FloppyWidget(QWidget):
     floppy_changed = pyqtSignal()
     floppy_removed = pyqtSignal(int)
@@ -438,9 +437,3 @@ class StoragePage(QWidget):
         self.floppy_widgets.append(widget)
         self.floppy_container.addWidget(widget)
         widget.show()
-
-    # O método 'generate_qemu_args_and_names' foi removido desta página.
-    # A geração da linha de comando QEMU a partir da QemuConfig é agora responsabilidade
-    # do método 'to_qemu_args_string' da classe QemuConfig, que é chamado pela OverviewPage.
-    # A StoragePage agora apenas fornece os dados em formato de dicionário para o AppContext,
-    # que os armazena na QemuConfig.

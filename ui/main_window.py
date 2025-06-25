@@ -18,8 +18,7 @@ from ui.pages.storage_page import StoragePage
 from ui.styles.themes import get_dark_stylesheet, get_light_stylesheet
 
 import os
-import sys
-from typing import Optional # Para tipagem do file_path
+from typing import Optional 
 
 class ConsoleStream(QObject):
     new_text = pyqtSignal(str)
@@ -46,19 +45,19 @@ class MainWindow(QWidget):
         self.setWindowTitle("Frontend QEMU 3DFX")
         self.resize(900, 600)
 
-        # AppContext é o coração da lógica de dados
+        # AppContext is the heart of data logic, it is used to store
+        # data and to control the state of the application.
         self.app_context = AppContext()
         self.qemu_config = self.app_context.qemu_config
 
-        # O arquivo de configuração padrão
-        self.config_file = "qemu_config.json" # Renomeei para evitar conflito com 'config.json' genérico
-        self.qemu_process = None # Para controlar o processo QEMU quando for implementado
-        self._vm_state = {"theme": "dark"} # Estado da UI, não da VM QEMU
+        # default configuration file
+        self.config_file = "qemu_config.json"
+        self.qemu_process = None # for control QEMU Process
+        self._vm_state = {"theme": "dark"} # UI status, not QEMU VM status
 
-        # Flag para prevenir recursão no título da janela
         self.recursion_prevent = False
 
-        # Instanciação das páginas, passando o AppContext
+        # AppContext pages instance
         self.overview_page = OverviewPage(self.app_context)
         self.app_context.register_page("overview", self.overview_page)
         self.hardware_page = HardwarePage(self.app_context)
@@ -68,21 +67,21 @@ class MainWindow(QWidget):
 
         self.overview_page.resolve_dependencies()
 
-        # Conectar ao sinal de atualização de configuração do AppContext
-        # Isso garante que a MainWindow reaja a QUALQUER mudança na QemuConfig.
+        # Hook into the AppContext configuration update signal
+        # This ensures that MainWindow reacts to ANY change in QemuConfig.
         self.app_context.qemu_config_updated.connect(self.update_window_title)
         self.app_context.qemu_config_modified.connect(self.update_window_title)
 
-        # Setup da interface
+        # Setup interface
         self.setup_ui()
         self.apply_theme()
         
-        # Carrega a configuração inicial da VM se o arquivo existir.
-        # Isso vai disparar qemu_config_updated, que por sua vez atualizará as páginas.
+        # Load the initial VM configuration if the file exists.
+        # This will trigger qemu_config_updated, which in turn will update the pages.
         self.load_vm_config_from_file(self.config_file) 
         
-        # Opcional: Se nenhuma config for carregada, forçar uma atualização inicial do título
-        # para refletir o estado padrão.
+        # Optional: If no config is loaded, force an initial title refresh
+        # to reflect the default state.
         self.update_window_title()      
 
     def setup_ui(self):
@@ -102,7 +101,7 @@ class MainWindow(QWidget):
             ("Overview", "fa5s.home", self.overview_page),
             ("Hardware", "fa5s.microchip", self.hardware_page),
             ("Storage", "fa5s.hdd", self.storage_page),
-            ("Network", "fa5s.network-wired", None), # Páginas Placeholder
+            ("Network", "fa5s.network-wired", None), # Placeholders Pages
             ("Display", "fa5s.desktop", None),
             ("Sound", "fa5s.volume-up", None),
             ("Advanced", "fa5s.cogs", None),
@@ -118,12 +117,12 @@ class MainWindow(QWidget):
                 selected_bg="rgba(80, 92, 144, 0.3)",
                 hover_bg="#505c90"
             )
-            # Conecta o botão para mudar a página no QStackedWidget
+            # Connect the button to change the page in the QStackedWidget
             btn.clicked.connect(lambda checked=False, i=idx: self.pages.setCurrentIndex(i))
             self.sidebar_layout.addWidget(btn)
             self.buttons.append(btn)
 
-            # Adiciona a página ao QStackedWidget
+            # Add page to QStackedWidget
             if page is not None:
                 self.pages.addWidget(page)
             else:
@@ -133,7 +132,7 @@ class MainWindow(QWidget):
 
         self.sidebar_layout.addStretch()
 
-        # Botões de ação na barra lateral
+        # Action Buttons in Sidebar
         self.sidebar_layout.addWidget(self._make_button("Salvar Config", "fa5s.save", self.save_vm_config_to_file_dialog, "#50fa7b"))
         self.sidebar_layout.addWidget(self._make_button("Carregar Config", "fa5s.folder-open", self.load_vm_config_from_file_dialog, "#ffb86c"))
         self.sidebar_layout.addWidget(self._make_button("Alternar Tema", "fa5s.adjust", self.toggle_theme, "#8be9fd"))
@@ -141,12 +140,12 @@ class MainWindow(QWidget):
         main_layout.addWidget(self.sidebar)
         main_layout.addWidget(self.pages)
 
-        # Seleciona o primeiro botão e a primeira página por padrão
+        # Select the first page and the first button as default
         if self.buttons:
             self.buttons[0].setChecked(True)
             self.pages.setCurrentIndex(0)
 
-        # Conecta o sinal de mudança de página para atualizar o estado dos botões da sidebar
+        # Connect signal changed to update the selected page
         self.pages.currentChanged.connect(self.on_page_changed)
 
         self.console_stream.new_text.connect(self.overview_page.console_output.appendPlainText)
@@ -162,20 +161,18 @@ class MainWindow(QWidget):
         btn.clicked.connect(callback)
         return btn
 
-    # Os métodos _config_changed, _config_saved, _config_loaded foram removidos,
-    # pois a lógica de atualização agora é centralizada via qemu_config_updated.
-
     def closeEvent(self, event):
-        # Verifica se a configuração foi modificada antes de fechar
+        # Check if app is modified before closing
         if self.app_context.is_modified():
             msg = QMessageBox(self)
-            msg.setWindowTitle("Salvar Configuração?")
-            msg.setText("Você tem alterações não salvas. Deseja salvar antes de sair?")
+            msg.setWindowTitle("Save configuration")
+            msg.setText("You have unsaved changes. Do you want to save before exiting?")
             msg.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
             msg.setDefaultButton(QMessageBox.Save)
             ret = msg.exec_()
             if ret == QMessageBox.Save:
-                self.save_vm_config_to_file(self.config_file) # Chama a função de salvar com o arquivo padrão
+                # Call the default configuration file
+                self.save_vm_config_to_file(self.config_file) 
                 event.accept()
             elif ret == QMessageBox.Discard:
                 event.accept()
@@ -185,11 +182,12 @@ class MainWindow(QWidget):
             event.accept()
 
     def on_page_changed(self, index):
-        # Atualiza o estado "checked" dos botões da sidebar
+        # Refresh the "checked" state of the buttons when the page is changed
+        self.buttons[index].setChecked(True)
         for i, btn in enumerate(self.buttons):
             btn.setChecked(i == index)
         
-        # Notifica a página atual (se tiver o método) que ela foi ativada
+        # Notify the current page
         page = self.pages.currentWidget()
         if page and hasattr(page, "on_page_changed"):
             page.on_page_changed()
@@ -201,7 +199,7 @@ class MainWindow(QWidget):
         else:
             self.set_light_theme()
 
-    # Métodos para aplicar temas (mantidos como estavam)
+    # Themes methods
     def set_dark_theme(self):
         self.setStyleSheet(get_dark_stylesheet())
         self.sidebar.setStyleSheet("background-color: #282a36;")
@@ -230,29 +228,29 @@ class MainWindow(QWidget):
         self.apply_theme() 
 
     def save_vm_config_to_file_dialog(self):
-        """Abre um diálogo para o usuário escolher onde salvar a configuração."""
+        """Open a dialog file to save configuration to a file."""
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Configuração da VM", self.config_file, "QEMU Config Files (*.json);;All Files (*)"
+            self, "Save configuration of Frontend", self.config_file, "QEMU Config Files (*.json);;All Files (*)"
         )
         if file_path:
             self.config_file = file_path # Atualiza o arquivo padrão se o usuário salvou em outro lugar
             self.save_vm_config_to_file(file_path)
 
     def save_vm_config_to_file(self, file_path: str):
-        """Salva a configuração da VM no arquivo especificado."""
+        """Save the Frontend configuration to a file."""
         try:
             # Delega o salvamento para o AppContext
             self.app_context.save_qemu_config(file_path)
-            QMessageBox.information(self, "Configuração Salva", f"Configuração da VM salva em: {file_path}")
-            print(f"Configuração salva com sucesso em: {file_path}")
+            QMessageBox.information(self, "Configuration Saved", f"Configuration saved to: {file_path}")
+            print(f"[INFO] Configuration saved sucessfully to {file_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao Salvar", f"Falha ao salvar configuração: {e}")
-            print(f"Erro ao salvar configuração: {e}")
+            QMessageBox.critical(self, "A error ocurred saving configuration", f"Error saving configuration: {e}")
+            print(f"[WARN] Error ocurred saving configuration: {e}")
        
     def load_vm_config_from_file_dialog(self):
-        """Abre um diálogo para o usuário escolher qual arquivo carregar."""
+        """Open a dialog file to load configuration from a file."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Carregar Configuração da VM", self.config_file, "QEMU Config Files (*.json);;All Files (*)"
+            self, "Load configuration of Frontend", self.config_file, "QEMU Config Files (*.json);;All Files (*)"
         )
         if file_path:
             self.config_file = file_path # Atualiza o arquivo padrão
@@ -260,42 +258,35 @@ class MainWindow(QWidget):
 
     def load_vm_config_from_file(self, file_path: Optional[str] = None):
         """
-        Carrega a configuração da VM de um arquivo.
-        Se nenhum caminho for fornecido, tenta carregar do arquivo padrão.
+        Load the Frontend configuration from a file.
+        If file_path is None, it tries to load the default configuration.
         """
         if file_path is None:
             file_path = self.config_file # Tenta carregar do arquivo padrão
             
         if not os.path.exists(file_path):
-            print(f"Nenhum arquivo de configuração encontrado em: {file_path}. Iniciando com configuração padrão.")
-            # Se não há arquivo, o AppContext permanece com a config padrão.
-            # O sinal qemu_config_updated já será emitido na inicialização do AppContext
-            # ou você pode forçar uma emissão se realmente quiser.
+            print(f"[WARN]Don't have a configuration file to load {file_path}. Starting with the default configuration.")
             return
-
         try:
-            # Delega o carregamento para o AppContext.
-            # O AppContext carregará os dados e EMITIRÁ qemu_config_updated.
+            # Delegate the loading to the AppContext
             self.app_context.load_qemu_config(file_path)
             
-            # As páginas (OverviewPage, HardwarePage, StoragePage) 
-            # já estão conectadas a qemu_config_updated e irão se atualizar.
-            
             #QMessageBox.information(self, "Configuração Carregada", f"Configuração da VM carregada de: {file_path}")
-            print(f"Configuração carregada com sucesso de: {file_path}")
+            print(f"[INFO]Configuration loaded sucessfully from: {file_path}")
 
         except Exception as e:
-            QMessageBox.critical(self, "Erro ao Carregar Configuração", f"Falha ao carregar configuração: {e}")
-            print(f"Erro ao carregar configuração: {e}")
+            QMessageBox.critical(self, "Error loading configuration", f"Error loading configuration: {e}")
+            print(f"[ERROR] Error ocurred loading configuration: {e}")
 
-        # O update_window_title será chamado via conexão ao sinal qemu_config_updated
+        # update_window_title is called by AppContext to refresh window title
 
     def update_window_title(self, modified=None):
+        # Prevent signal recursion
         if not self.recursion_prevent:
             self.recursion_prevent = True
             base_title = "Frontend QEMU 3DFX"
             current_qemu_config = self.app_context.get_qemu_config_object()
-            # Use o parâmetro modified vindo do sinal, se tiver, senão calcula
+            # Use's the parameters to generate the title
             if modified is None:
                 modified = self.app_context.is_modified()
             modified_indicator = "\u25CF " if modified else ""

@@ -9,9 +9,8 @@ import json
 import hashlib
 import subprocess
 import re
-from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
+
 from typing import Any, Dict, List, Optional, Tuple
-from ui.pages import overview_page
 
 class QemuHelper:
     def __init__(self, qemu_path):
@@ -575,14 +574,5 @@ class QemuConfig:
 
         # Atualiza QemuHelper (se aplicável)
         if "qemu_executable" in data_dict:
-            self.current_qemu_executable = data_dict["qemu_executable"]    
-    
-    def append_colored_text(self, text, color):
-        self.overview_page = overview_page
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        cursor = self.overview_page.console_output.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        cursor.insertText(text + '\n', fmt)
-        self.overview_page.console_output.setTextCursor(cursor)
-        self.overview_page.console_output.ensureCursorVisible()        
+            self.current_qemu_executable = data_dict["qemu_executable"]
+      

@@ -35,7 +35,7 @@ BOOT_ORDER = "boot"
 class HardwarePage(QWidget):
     hardware_config_changed = pyqtSignal() 
     def __init__(self, app_context: AppContext):
-        print("[INIT] HardwarePage instanciada")
+        print("[INIT] HardwarePage Instanced")
         super().__init__()
         self.app_context = app_context
         self.qemu_config = self.app_context.qemu_config
@@ -43,23 +43,22 @@ class HardwarePage(QWidget):
         self._setup_ui
 
         self.host_cpu_count = multiprocessing.cpu_count()
-        self._loading_config = False # Flag para quando a UI está sendo carregada pela config
-        self._updating_cpu_ui = False # Flag para evitar loops na lógica de CPU/Topology
+        self._loading_config = False 
+        self._updating_cpu_ui = False 
 
         self._setup_ui()
         self.bind_signals()
 
-        # Conecta o sinal hardware_config_changed para o método de atualização do AppContext
-        # Note que a conexão é para _on_hardware_config_changed (nesta página)
-        # que por sua vez CHAMA o AppContext.update_qemu_config_from_page
+        # Connect the hardware_config_changed signal to the AppContext update method
+        # Note that the connection is to _on_hardware_config_changed (on this page)
+        # which in turn CALLS AppContext.update_qemu_config_from_page
         self.hardware_config_changed.connect(self._on_hardware_config_changed)
 
-        # Conecta ao sinal do AppContext que avisa que a QemuConfig foi atualizada.
-        # Este é o principal ponto de entrada para ATUALIZAR a UI da página.
+        # Hooks into the AppContext signal that tells you that QemuConfig has been updated.
+        # This is the main entry point for UPDATING the page's UI.
         self.app_context.qemu_config_updated.connect(self.load_from_qemu_config)
 
     # === UI Setup ===
-
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -86,7 +85,7 @@ class HardwarePage(QWidget):
         hbox_vcpu.addWidget(QLabel("vCPU Allocation:"))
         self.smp_cpu_spinbox = QSpinBox()
         self.smp_cpu_spinbox.setRange(1, 256)
-        self.smp_cpu_spinbox.setValue(4) # Valor inicial padrão
+        self.smp_cpu_spinbox.setValue(4) # Initial default value
         hbox_vcpu.addWidget(self.smp_cpu_spinbox)
         cpus_layout.addLayout(hbox_vcpu)
 
@@ -149,7 +148,7 @@ class HardwarePage(QWidget):
 
         parent_layout.addWidget(QLabel("Machine Type:"))
         self.machine_combo = QComboBox()
-        # Valores padrão para máquina. Serão populados por load_machine_list.
+        # Default values, These values ​​will be populated by QemuConfig based on the chosen binary
         self.machine_combo.addItems([DEFAULT_MACHINE_QEMU_ARG, "q35", "isapc"])
         parent_layout.addWidget(self.machine_combo)
         self.sata_checkbox = QCheckBox("Enable SATA")
@@ -158,16 +157,17 @@ class HardwarePage(QWidget):
         parent_layout.addWidget(QLabel("Memory (MB):"))
         self.mem_combo = QComboBox()
         self.mem_combo.setEditable(True)
-        mem_sizes = [str(2**i) for i in range(8, 16)]  # 256MB to 32768MB
+        mem_sizes = [str(2**i) for i in range(8, 16)]  # 256MB to 64GB
+        mem_sizes.sort(reverse=True)
         self.mem_combo.addItems(mem_sizes)
-        # Define um valor inicial padrão para memória, se não estiver na lista, adiciona.
+        # Define the default value for memory if not present in config file
         if self.mem_combo.findText(str(DEFAULT_MEMORY_QEMU_ARG)) == -1:
             self.mem_combo.insertItem(0, str(DEFAULT_MEMORY_QEMU_ARG))
         self.mem_combo.setCurrentText(str(DEFAULT_MEMORY_QEMU_ARG))
 
         line_edit = self.mem_combo.lineEdit()
         if line_edit is not None:
-            line_edit.setValidator(QIntValidator(128, 65536))
+            line_edit.setValidator(QIntValidator(128, 65536)) # change here to raise the values
         parent_layout.addWidget(self.mem_combo)
 
     def _setup_misc_widgets(self, parent_layout: QVBoxLayout):
@@ -214,9 +214,10 @@ class HardwarePage(QWidget):
         parent_layout.addWidget(group)
 
     # === Signal Binding ===
-
     def bind_signals(self):
-        # CPU and topology signals - TODOS conectados a _on_hardware_config_changed
+        # Signals - all connected to _on_hardware_config_changed
+        # because sending signal directly to the PyQtSignal is a bad practice
+        # and cause infinite loops, recursion and memory leaks
         self.cpu_combo.currentTextChanged.connect(self.hardware_config_changed)
         self.smp_cpu_spinbox.valueChanged.connect(self.hardware_config_changed)
         self.smp_passthrough_checkbox.toggled.connect(self.hardware_config_changed)
@@ -226,12 +227,10 @@ class HardwarePage(QWidget):
         self.smp_cores_spinbox.valueChanged.connect(self.hardware_config_changed)
         self.smp_threads_spinbox.valueChanged.connect(self.hardware_config_changed)
 
-        # Machine, Memory, KVM signals - TODOS conectados a _on_hardware_config_changed
         self.machine_combo.currentTextChanged.connect(self.hardware_config_changed)
         self.mem_combo.currentTextChanged.connect(self.hardware_config_changed)
         self.kvm_accel_checkbox.stateChanged.connect(self.hardware_config_changed)
 
-        # Misc signals - TODOS conectados a _on_hardware_config_changed
         self.usb_checkbox.stateChanged.connect(self.hardware_config_changed)
         self.mouse_usb_checkbox.stateChanged.connect(self.hardware_config_changed)
         self.tablet_usb_checkbox.stateChanged.connect(self.hardware_config_changed)
@@ -239,39 +238,39 @@ class HardwarePage(QWidget):
         self.nodefaults_checkbox.stateChanged.connect(self.hardware_config_changed)
         self.bios_lineedit.textChanged.connect(self.hardware_config_changed)
         self.boot_combo.currentTextChanged.connect(self.hardware_config_changed)
-
+        # Bios signal is separated because the QDialog is a different Widget and
+        # needs to be updated separately
         self.bios_browse_btn.clicked.connect(self.on_bios_browse_clicked)
-
+        # Update configuration via AppContext -> QemuConfig -> QemuHelper
+        # to avoid recursion and infite loops, etc
         self.app_context.qemu_config_updated.connect(self.update_qemu_helper)
 
     # === Configuration Updates ===
 
     def _on_hardware_config_changed(self):
         """
-        Este método é chamado quando alguma alteração na GUI da HardwarePage acontece
-        e precisa ser refletida na QemuConfig do AppContext.
-        Ele vai coletar TODOS os dados de hardware da GUI desta página
-        e enviá-los em um dicionário para o AppContext atualizar a QemuConfig.
+        This method is called when some change in the HardwarePage GUI happens
+        and needs to be reflected in the AppContext's QemuConfig.
+        It will collect ALL the hardware data from the GUI of this page
+        and send it in a dictionary to the AppContext to update the QemuConfig.
         """
         if self._loading_config or self._updating_cpu_ui or self.app_context._blocking_signals:
-            return # Evita loops quando o próprio código ou o AppContext atualiza a UI
+            return # That is for intentional recursion block, don't edit or remove!
 
-        # 1. Coleta os dados de hardware da GUI e os organiza em um dicionário.
-        #    As chaves devem ser os nomes dos argumentos QEMU que a QemuConfig espera.
+        # Create a dictionary with all hardware data from the GUI
         hardware_data: Dict[str, Any] = {}
 
-        # CPU Model (-cpu) e SMP (-smp)
+        # CPU Model (-cpu) and SMP (-smp)
         cpu_val = self.cpu_combo.currentText().strip()
         passthrough_enabled = self.smp_passthrough_checkbox.isChecked()
         topology_enabled = self.topology_checkbox.isChecked()
 
         if passthrough_enabled:
             hardware_data['cpu'] = HOST_CPU
-            # Se cpu for host, smp é implícito, não adicionamos -smp explicitamente
-            # a QemuConfig.to_qemu_args_string já sabe disso.
+            # if cpu is "host" or "max" is don't necessary to add to dict because
+            # is implicit. "passtrhrough is only used for host or max options"
         elif cpu_val and cpu_val != DEFAULT_CPU:
             hardware_data['cpu'] = cpu_val
-        # Se cpu_val é DEFAULT_CPU e não é passthrough, não adicionamos 'cpu' para usar o default
 
         if topology_enabled:
             sockets = self.smp_sockets_spinbox.value()
@@ -279,35 +278,37 @@ class HardwarePage(QWidget):
             threads = self.smp_threads_spinbox.value()
             hardware_data['smp'] = {'sockets': sockets, 'cores': cores, 'threads': threads}
         elif not passthrough_enabled:
-            # Apenas se não for passthrough, o smp_cpu_spinbox controla o valor
+            # only if not passtrhough, the "SMP Spinbox" are show and be used
+            # passtrhough automatically set's the cpus to guest a HALF of host have
             smp_val = self.smp_cpu_spinbox.value()
-            if smp_val != DEFAULT_MEMORY_QEMU_ARG: # Comparar com o default de smp, que é 2
+            if smp_val != DEFAULT_MEMORY_QEMU_ARG: 
                 hardware_data['smp'] = smp_val
-        # Se passthrough_enabled, 'smp' é omitido ou o valor padrão (2) será usado,
-        # dependendo de como a QemuConfig lida com defaults quando a chave está ausente.
 
         # CPU Mitigations (-cpu-mitigations)
         if self.cpu_mitigations_checkbox.isChecked():
-            hardware_data['cpu-mitigations'] = 'on' # QEMU espera 'on' ou 'off'
+            hardware_data['cpu-mitigations'] = 'on' # QEMU waits 'on' or 'off' that's barelly works actually
         else:
-            hardware_data['cpu-mitigations'] = 'off' # Explicitamente 'off' se desmarcado, ou remover se default é False
+            hardware_data['cpu-mitigations'] = 'off' # this option is a proof-of-concept and not work correctly actually
 
         # Machine Type (-machine)
         machine_val = self.machine_combo.currentText().strip()
         if machine_val and machine_val != DEFAULT_MACHINE_QEMU_ARG:
             hardware_data['machine'] = machine_val
-        # else: se for DEFAULT_MACHINE_QEMU_ARG, a QemuConfig usará o seu próprio default.
+        # if else, QemuConfig use the Default Values, for that reason, ELSE is
+        # not needed here.
 
         # Memory (-m)
         mem_val_str = self.mem_combo.currentText().strip()
         try:
             mem_val_int = int(mem_val_str)
-            if mem_val_int != DEFAULT_MEMORY_QEMU_ARG: # Compara com o default de memória
+            if mem_val_int != DEFAULT_MEMORY_QEMU_ARG: # Compares with the Default memory value
                 hardware_data['m'] = mem_val_int
         except ValueError:
-            # Se não for um número válido, podemos ignorar ou definir um padrão seguro
-            print(f"HardwarePage: Valor de memória inválido: {mem_val_str}")
-            pass # Deixa QemuConfig lidar com o default se 'm' não for definido
+            # If not a valid value, ignore and use the default value
+            # also, show a warning in Console to help advanced users
+            print(f"HardwarePage: memory value is invalid number: {mem_val_str}")
+            pass # Same case of above, QemuConfig use the default values or
+                 # use fix that for the user
 
         # KVM Acceleration (-enable-kvm)
         hardware_data['enable-kvm'] = self.kvm_accel_checkbox.isChecked()
@@ -316,12 +317,10 @@ class HardwarePage(QWidget):
         hardware_data['usb'] = self.usb_checkbox.isChecked()
 
         # RTC (-rtc)
-        # O QemuConfig espera 'rtc': True para base=localtime,clock=host, ou um dict com mais opções.
-        # Estamos assumindo que o checkbox significa o default.
         if self.rtc_checkbox.isChecked():
-            hardware_data['rtc'] = {'base': 'localtime', 'clock': 'host'} # Padrão para checkbox RTC
+            hardware_data['rtc'] = {'base': 'localtime', 'clock': 'host'} # Default for RTC
         else:
-            hardware_data['rtc'] = False # Define como False se desmarcado
+            hardware_data['rtc'] = False
 
         # No Defaults (-nodefaults)
         hardware_data['nodefaults'] = self.nodefaults_checkbox.isChecked()
@@ -334,51 +333,29 @@ class HardwarePage(QWidget):
         # Boot order (-boot)
         boot_val = self.boot_combo.currentText().strip()
         if boot_val:
-            # O AppContext.QemuConfig.parse_qemu_command_line_to_config
-            # já lida com 'menu=on' e 'c,menu=on', então podemos passar a string.
             if '=' in boot_val: # ex: 'menu=on'
                 hardware_data['boot'] = self.qemu_argument_parser._parse_qemu_key_value_string(boot_val)
             else: # ex: 'c' ou 'd'
                 hardware_data['boot'] = {'order': boot_val}
         else:
-            # Se vazio, garante que 'boot' não seja enviado ou seja resetado.
-            # O AppContext deve ter lógica para remover args se o valor for "vazio".
-            # Ou podemos omitir 'boot' do hardware_data. Por simplicidade, omisso se vazio.
+            # If empty value or not configured, QemuConfig assume the default
+            # and set the boot order as "-boot cd,menu=on" in case of more media
+            # created and connected to VM (example more to 2 cdroms or 3 disks)
             pass
 
 
-        # 2. Envia o dicionário de dados para o AppContext.
+        # Send data dict to AppContext.
         self.qemu_config.update_qemu_config_from_page(hardware_data)
         overview_page = self.app_context.get_page("overview")
         if overview_page:
             overview_page.refresh_display_from_qemu_config()
         self.app_context.mark_modified()        
-        
-        # Chamar _update_cpu_config_and_ui AQUI para garantir que a lógica de UI do CPU/SMP
-        # (visibilidade e habilitação) seja aplicada APÓS os valores serem lidos da UI e enviados.
-        # Isto é crucial porque as flags `_loading_config` e `_updating_cpu_ui`
-        # precisam ser consideradas. O ideal é que `_update_cpu_config_and_ui` seja chamado
-        # APENAS no `load_from_qemu_config`, quando a UI está sendo preenchida a partir da config.
-        # Aqui, estamos REAGINDO a uma mudança da UI para a config, então o `_update_cpu_config_and_ui`
-        # não deveria ser chamado diretamente por aqui, pois pode causar loops se mal orquestrado.
-        # A responsabilidade de ajustar a UI deve ser do load_from_qemu_config,
-        # que é acionado após a QemuConfig ser atualizada e o sinal emitido.
-
-        print("HardwarePage: Configuração coletada da GUI e enviada para QemuConfig")
-
-
-    # Métodos que agora APENAS disparam o sinal `hardware_config_changed`
-    # Eles não precisam mais coletar dados individualmente, pois _on_hardware_config_changed faz isso.
-    # on_machine_changed, on_mem_changed, on_kvm_changed são removidos pois o bind_signals
-    # já os conecta diretamente ao hardware_config_changed.emit.
-    # _update_misc_config também pode ser removido, pois tudo vai para _on_hardware_config_changed.
+        print("[INFO] HardwarePage: Collected GUI information and sended to AppContext.")
 
     def on_bios_browse_clicked(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select BIOS file")
         if path:
             self.bios_lineedit.setText(path)
-            # A mudança de texto no lineEdit já aciona hardware_config_changed.emit,
-            # que por sua vez, aciona _on_hardware_config_changed.
 
     def _update_cpu_config_and_ui(self):
         """
