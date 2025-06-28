@@ -164,7 +164,7 @@ class DriveWidget(QWidget):
             def __enter__(self_blocker):  # type: ignore
                 for w in widgets: 
                     w.blockSignals(True) 
-            def __exit__(self_blocker, exc_type, exc_val, exc_tb): 
+            def __exit__(self_blocker, exc_type, exc_val, exc_tb):  # type: ignore
                     w.blockSignals(False) #type: ignore
         return SignalBlocker() 
     
