@@ -161,7 +161,7 @@ class DriveWidget(QWidget):
     # Novo método para bloquear sinais de forma segura
     def block_signals_context(self, widgets):
         class SignalBlocker: 
-            def __enter__(self_blocker): 
+            def __enter__(self_blocker):  # type: ignore
                 for w in widgets: 
                     w.blockSignals(True) 
             def __exit__(self_blocker, exc_type, exc_val, exc_tb): 
