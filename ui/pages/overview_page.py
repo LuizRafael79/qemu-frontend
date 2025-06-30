@@ -372,11 +372,11 @@ class OverviewPage(QWidget):
     def append_colored_text(self, text, color):
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))
-        cursor = self.console_output.textCursor() #type: ignore
+        cursor = self.console_output.textCursor() 
         cursor.movePosition(QTextCursor.End)
         cursor.insertText(text + '\n', fmt)
-        self.console_output.setTextCursor(cursor) #type: ignore
-        self.console_output.ensureCursorVisible() #type: ignore
+        self.console_output.setTextCursor(cursor) 
+        self.console_output.ensureCursorVisible()
 
         # The use of type: ignore is only for the purpose of the IDE plugin, like Pylance in Vscode
         # is not able to detect the types of functions arguments (false positive)

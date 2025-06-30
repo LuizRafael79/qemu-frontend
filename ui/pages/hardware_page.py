@@ -271,7 +271,14 @@ class HardwarePage(QWidget):
     def save_boot_order(self):
         order = []
         for i in range(self.boot_list.count()):
-            order.append(self.boot_list.item(i).text())
+            # 1. Pega o item primeiro e o armazena em uma variável
+            item = self.boot_list.item(i)
+            
+            # 2. Verifica se o item realmente existe (não é None)
+            if item is not None:
+                # 3. Só então, acessa o método .text() com segurança
+                order.append(item.text())
+                
         print("[DEBUG] Boot order:", order)
 
     def _on_hardware_config_changed(self):
@@ -367,13 +374,19 @@ class HardwarePage(QWidget):
         # Lê a ordem dos itens diretamente do QListWidget
         order_chars = []
         for i in range(self.boot_list.count()):
-            item_text = self.boot_list.item(i).text()
-            if "(c)" in item_text:
-                order_chars.append('c')
-            elif "(d)" in item_text:
-                order_chars.append('d')
-            elif "(n)" in item_text:
-                order_chars.append('n')
+            # 1. Pega o item e armazena em uma variável
+            item = self.boot_list.item(i)
+            
+            # 2. Garante que o item não é None antes de continuar
+            if item is not None:
+                item_text = item.text()
+                # O resto da sua lógica vai dentro deste 'if'
+                if "(c)" in item_text:
+                    order_chars.append('c')
+                elif "(d)" in item_text:
+                    order_chars.append('d')
+                elif "(n)" in item_text:
+                    order_chars.append('n')
         
         boot_order_str = "".join(order_chars)
 

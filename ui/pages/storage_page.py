@@ -13,6 +13,8 @@ from app.utils.qemu_helper import QemuConfig
 from app.context.app_context import AppContext
 import os, traceback
 from typing import Any, List, Dict
+from contextlib import contextmanager
+
 
 # --- Início das Classes de Widget (DriveWidget, FloppyWidget) ---
 
@@ -58,8 +60,8 @@ class DriveWidget(QWidget):
 
 
     def on_drive_changed(self, *args, **kwargs):
-        self.drive_changed.emit() # type: ignore
-        self.device_changed.emit() # type: ignore
+        self.drive_changed.emit() 
+        self.device_changed.emit() 
 
     def _browse_file(self):
         # ... (sem alterações, pode manter sua versão)
@@ -99,7 +101,7 @@ class DriveWidget(QWidget):
         self.on_drive_changed()
 
     def _remove_self(self):
-        self.drive_removed.emit(self.drive_id) # type: ignore
+        self.drive_removed.emit(self.drive_id) 
 
     def get_drive_data(self) -> Dict[str, Any] | None:
         path = self.path_edit.text().strip()
@@ -158,14 +160,15 @@ class DriveWidget(QWidget):
             else:
                 self.if_combo.setCurrentText("none")
 
+    @contextmanager
     def block_signals_context(self, widgets):
-        class SignalBlocker:
-            def __enter__(self_blocker): # type: ignore
-                for w in widgets: w.blockSignals(True)
-            def __exit__(self_blocker, exc_type, exc_val, exc_tb): # type: ignore
-                for w in widgets: w.blockSignals(False)
-        return SignalBlocker()
-
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            yield
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
 class FloppyWidget(QWidget):
     # Nenhuma alteração lógica necessária aqui, mantido como está.
     floppy_changed = pyqtSignal()
@@ -205,10 +208,10 @@ class FloppyWidget(QWidget):
             self.on_floppy_changed()
 
     def on_floppy_changed(self, *args, **kwargs):
-        self.floppy_changed.emit() # type: ignore
+        self.floppy_changed.emit() 
 
     def _remove_self(self):
-        self.floppy_removed.emit(self.unit) # type: ignore
+        self.floppy_removed.emit(self.unit) 
 
     def get_floppy_data(self):
         path = self.path_edit.text().strip()
@@ -297,14 +300,14 @@ class StoragePage(QWidget):
             traceback.print_exc()
 
     def _connect_drive_signals(self, widget: DriveWidget):
-        widget.drive_changed.connect(self._on_storage_changed) # type: ignore
-        widget.device_changed.connect(self._on_storage_changed) # type: ignore
-        widget.drive_removed.connect(self._on_drive_removed) # type: ignore
-        widget.device_removed.connect(self._on_drive_removed) # type: ignore
+        widget.drive_changed.connect(self._on_storage_changed) 
+        widget.device_changed.connect(self._on_storage_changed)
+        widget.drive_removed.connect(self._on_drive_removed) 
+        widget.device_removed.connect(self._on_drive_removed) 
 
     def _connect_floppy_signals(self, widget: FloppyWidget):
-        widget.floppy_changed.connect(self._on_storage_changed) # type: ignore
-        widget.floppy_removed.connect(self._on_floppy_removed) # type: ignore
+        widget.floppy_changed.connect(self._on_storage_changed) 
+        widget.floppy_removed.connect(self._on_floppy_removed) 
 
     def add_drive(self, is_loading: bool = False):
         drive_id = f"disk{self.drive_count}"
@@ -333,7 +336,7 @@ class StoragePage(QWidget):
         widget_to_remove = next((w for w in self.drive_widgets if w.drive_id == drive_id), None)
         if widget_to_remove:
             self.drive_widgets.remove(widget_to_remove)
-            widget_to_remove.setParent(None)
+            widget_to_remove.setParent(None) # type: ignore
             widget_to_remove.deleteLater()
             self._on_storage_changed()
 
@@ -341,29 +344,29 @@ class StoragePage(QWidget):
         widget_to_remove = next((w for w in self.floppy_widgets if w.unit == unit), None)
         if widget_to_remove:
             self.floppy_widgets.remove(widget_to_remove)
-            widget_to_remove.setParent(None)
+            widget_to_remove.setParent(None) # type: ignore
             widget_to_remove.deleteLater()
             self._on_storage_changed()
 
     def clear_all_drives(self):
         # Desconecta os sinais ANTES de deletar para evitar disparos indesejados
         for widget in self.drive_widgets:
-            widget.drive_changed.disconnect() # type: ignore
-            widget.device_changed.disconnect() # type: ignore
-            widget.drive_removed.disconnect() # type: ignore
-            widget.device_removed.disconnect() # type: ignore
+            widget.drive_changed.disconnect() 
+            widget.device_changed.disconnect() 
+            widget.drive_removed.disconnect() 
+            widget.device_removed.disconnect() 
             self.drive_container.removeWidget(widget)
-            widget.setParent(None)
+            widget.setParent(None) # type: ignore
             widget.deleteLater()
         self.drive_widgets.clear()
         self.drive_count = 0
 
     def clear_all_floppies(self):
         for widget in self.floppy_widgets:
-            widget.floppy_changed.disconnect() # type: ignore
-            widget.floppy_removed.disconnect() # type: ignore
+            widget.floppy_changed.disconnect() 
+            widget.floppy_removed.disconnect() 
             self.floppy_container.removeWidget(widget)
-            widget.setParent(None)
+            widget.setParent(None) # type: ignore
             widget.deleteLater()
         self.floppy_widgets.clear()
         self.floppy_count = 0

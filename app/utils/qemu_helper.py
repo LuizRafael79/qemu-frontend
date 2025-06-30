@@ -14,6 +14,7 @@ import shlex
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 class QemuHelper:
+    data: Dict[str, Any]
     def __init__(self, qemu_path):
 
         if not self._is_valid_qemu_binary(qemu_path):
@@ -50,8 +51,12 @@ class QemuHelper:
             try:
                 with open(self.cache_file, "r") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:        
+            except (json.JSONDecodeError, IOError):        
+                # Se o arquivo existe mas é inválido, gera um novo.
                 return self._generate_cache()
+        else:
+            # Se o arquivo não existe, gera um novo.
+            return self._generate_cache()
 
     def _run_qemu_command(self, args):
         try:
@@ -65,7 +70,7 @@ class QemuHelper:
         except Exception as e:
             return ""
 
-    def _generate_cache(self):
+    def _generate_cache(self) -> Dict[str, Any]:
         version_output = self._run_qemu_command(["--version"])
         architecture = self._extract_architecture(version_output)
         qemu_path = os.path.abspath(self.qemu_path)
@@ -81,7 +86,8 @@ class QemuHelper:
                 json.dump(cache, f, indent=2)
         except IOError as e:
             return cache
-
+        else:
+            return {} 
 
     def _extract_architecture(self, version_string):
         match = re.search(r'featuring qemu-([a-zA-Z0-9]+)@([^-\s]+)', version_string)
@@ -101,8 +107,8 @@ class QemuHelper:
 
         return "Unknown"
 
-    def get_info(self, key):
-        return self.data.get(key, "") # type: ignore
+    def get_info(self, key) -> Any:
+        return self.data.get(key, "") 
 
     def get_cpu_list(self):
         cpu_output = self.get_info("cpu_help")
@@ -163,7 +169,7 @@ class QemuArgumentParser:
                 key, val = part.split('=', 1)
                 parsed_dict[key.strip()] = val.strip()
             elif part.strip():
-                parsed_dict[part.strip()] = True # type: ignore
+                parsed_dict[part.strip()] = "true" 
         return parsed_dict
 
     def _parse_boot_string(self, value_string: str) -> Dict[str, Any]:
