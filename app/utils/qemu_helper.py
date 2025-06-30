@@ -9,8 +9,9 @@ import json
 import hashlib
 import subprocess
 import re
+import shlex
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 
 class QemuHelper:
     def __init__(self, qemu_path):
@@ -49,10 +50,8 @@ class QemuHelper:
             try:
                 with open(self.cache_file, "r") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Erro ao ler cache QEMU para {self.qemu_path}. Gerando novamente. Erro: {e}")
-        
-        return self._generate_cache()
+            except (json.JSONDecodeError, IOError) as e:        
+                return self._generate_cache()
 
     def _run_qemu_command(self, args):
         try:
@@ -62,14 +61,11 @@ class QemuHelper:
             )
             return result.stdout.strip()
         except subprocess.TimeoutExpired:
-            print(f"Timeout ao executar QEMU para o comando: {' '.join(args)}")
             return ""
         except Exception as e:
-            print(f"Erro ao executar QEMU para o comando {' '.join(args)}: {e}")
             return ""
 
     def _generate_cache(self):
-        print(f"Gerando cache de informações para {os.path.basename(self.qemu_path)}...")
         version_output = self._run_qemu_command(["--version"])
         architecture = self._extract_architecture(version_output)
         qemu_path = os.path.abspath(self.qemu_path)
@@ -84,8 +80,7 @@ class QemuHelper:
             with open(self.cache_file, "w") as f:
                 json.dump(cache, f, indent=2)
         except IOError as e:
-            print(f"Erro ao salvar cache QEMU em {self.cache_file}: {e}")
-        return cache
+            return cache
 
 
     def _extract_architecture(self, version_string):
@@ -107,7 +102,7 @@ class QemuHelper:
         return "Unknown"
 
     def get_info(self, key):
-        return self.data.get(key, "")
+        return self.data.get(key, "") # type: ignore
 
     def get_cpu_list(self):
         cpu_output = self.get_info("cpu_help")
@@ -140,33 +135,12 @@ class QemuHelper:
                 if parts and parts[0] not in machines:
                     machines.append(parts[0])
         return machines if machines else ["pc", "q35", "isapc"]    
-
 class QemuArgumentParser:
-    def __init__(self):
-        self.qemu_config = QemuConfig() 
+    def __init__(self, config_provider: Callable[[], "QemuConfig"]):
+        self.qemu_config: QemuConfig = config_provider()
 
-    def _parse_sub_options(self, value_string):
-        """
-        Função auxiliar genérica para parsear valores com sub-opções (chave=valor, separadas por vírgula).
-        Não faz suposições sobre 'type' ou 'boot_order' aqui, apenas divide.
-        """
-        sub_options = {}
-        parts = value_string.split(',')
-        
-        for part in parts:
-            if '=' in part:
-                key, val = part.split('=', 1)
-                sub_options[key] = val
-            else:
-                pass
-
-        return sub_options
-    
-    def _parse_qemu_key_value_string(self, s: str) -> Dict[str, Any]:
-        """
-        Helper para parsear strings no formato 'key=value,key2=value2'.
-        Trata chaves sem valor como True (flags).
-        """
+    def _parse_key_value_string(self, s: str) -> Dict[str, Any]:
+        """Helper genérico para parsear strings como 'key=value,key2=value2'."""
         sub_options = {}
         parts = s.split(',')
         for part in parts:
@@ -178,129 +152,97 @@ class QemuArgumentParser:
             else:
                 sub_options[part] = True 
         return sub_options
+
+    def _parse_device_string(self, value_string: str) -> Dict[str, Any]:
+        """Parser especializado para argumentos como -device."""
+        parts = value_string.split(',')
+        if not parts: return {}
+        parsed_dict = {'interface': parts[0].strip()}
+        for part in parts[1:]:
+            if '=' in part:
+                key, val = part.split('=', 1)
+                parsed_dict[key.strip()] = val.strip()
+            elif part.strip():
+                parsed_dict[part.strip()] = True # type: ignore
+        return parsed_dict
+
+    def _parse_boot_string(self, value_string: str) -> Dict[str, Any]:
+        """Parser especializado para o argumento -boot."""
+        sub_options = {}
+        parts = value_string.split(',')
+        if parts and '=' not in parts[0]:
+            sub_options['order'] = parts[0].strip()
+            remaining_parts = parts[1:]
+        else:
+            remaining_parts = parts
+        for part in remaining_parts:
+            part = part.strip()
+            if '=' in part:
+                key, val = part.split('=', 1)
+                sub_options[key.strip()] = val.strip()
+        return sub_options
     
-    def parse_qemu_command_line_to_config(self, cmd_line_str: str = "", arg_name_full: str = "", arg_value_raw: str = ""):
-        """
-        Analisa uma string de linha de comando QEMU e a converte para o formato
-        self.qemu_config.all_args e self.qemu_config.extra_args_list.
-        Esta é a lógica do parser que popula a QemuConfig.
-        """
-        current_all_args = self.qemu_config.all_args.copy()
-        if current_all_args is None:
-            current_all_args = {}
-        print(f"AppContext: Parsing QEMU input string: {cmd_line_str[:100]}...")
-        self.qemu_config.reset() 
-        cleaned_string = cmd_line_str.replace('\\\n', ' ').strip()
-
-        arg_pattern = re.compile(r'(-[a-zA-Z0-9_]+)(?:\s*((?:[^-\s]|-(?!\w)|"[^"]*")*?))?(?=\s+-[a-zA-Z0-9_]|\s*$)')
-        matches = arg_pattern.findall(cleaned_string)
-
-        current_all_args = {}
-        current_extra_args_list: List[Tuple[str, Optional[str]]] = []
-
-        for arg_name_full, arg_value_raw in matches:
-            arg_name = arg_name_full.lstrip('-')
-
-            if arg_value_raw and arg_value_raw.startswith('"') and arg_value_raw.endswith('"'):
-                arg_value_raw = arg_value_raw[1:-1]
-
-            if ',' in arg_value_raw or '=' in arg_value_raw:
-                parsed_value = self._parse_qemu_key_value_string(arg_value_raw)
-                if parsed_value:
-                    if arg_name in ['device', 'drive', 'audiodev', 'netdev', 'chardev', 'monitor', 'qmp', 'serial', 'parallel']:
-                        if arg_name not in current_all_args or not isinstance(current_all_args[arg_name], list):
-                            current_all_args[arg_name] = []
-                        current_all_args[arg_name].append(parsed_value)
-
-                    elif arg_name in ['machine', 'M', 'smp', 'rtc', 'boot']:
-                        if arg_name == 'M':
-                            current_all_args['machine'] = parsed_value
-                        else:
-                            if arg_name in current_all_args:
-                                if isinstance(current_all_args[arg_name], list):
-                                    current_all_args[arg_name].append(parsed_value)
-                                else:
-                                    current_all_args[arg_name] = [current_all_args[arg_name], parsed_value]
-                            else:
-                                current_all_args[arg_name] = parsed_value
-
-                        if arg_name == 'smp':
-                            if len(parsed_value) == 1 and list(parsed_value.keys())[0] == list(parsed_value.values())[0]:
-                                try:
-                                    current_all_args['smp'] = int(list(parsed_value.keys())[0])
-                                except ValueError:
-                                    current_all_args['smp'] = parsed_value
-                            else:
-                                current_all_args['smp'] = parsed_value
-                        elif arg_name == 'boot':
-                            if len(parsed_value) == 1 and 'order' in parsed_value:
-                                current_all_args['boot'] = parsed_value
-                            else:
-                                current_all_args['boot'] = parsed_value
-                        else:
-                            current_all_args[arg_name] = parsed_value
-
-                    else:
-                        current_extra_args_list.append((arg_name_full, arg_value_raw))
-                else:
-                    current_all_args[arg_name] = arg_value_raw
-
-            elif arg_value_raw:
-                if arg_name == 'm':
-                    try:
-                        current_all_args['m'] = int(arg_value_raw)
-                    except ValueError:
-                        current_all_args['m'] = arg_value_raw
-                else:
-                    current_all_args[arg_name] = arg_value_raw
-
-            else:
-                if arg_name in ['enable-kvm', 'usb', 'nodefaults', 'nographic', 'daemonize', 'no-reboot']:
-                    current_all_args[arg_name] = True
-                else:
-                    current_extra_args_list.append((arg_name_full, None))
-
-        # Após o parse, atualiza a QemuConfig
-        self.qemu_config.all_args.update(current_all_args)
-        self.extra_args_list = current_extra_args_list
-
-        print("QemuConfig: QemuConfig updated from input string, qemu_config_updated emitted.")
-
-
-    def parse_qemu_command_line(self, qemu_cmd_line_raw: str):
-        cleaned_string = qemu_cmd_line_raw.replace('\\\n', ' ').strip()
-        arg_pattern = re.compile(r'(-[a-zA-Z0-9_]+)(?:\s*((?:[^-\s]|-(?!\w)|"[^"]*")*?))?(?=\s+-[a-zA-Z0-9_]|\s*$)')
-        matches = arg_pattern.findall(cleaned_string)
-
-        for arg_name_full, arg_value_raw in matches:
-            arg_name = arg_name_full.lstrip('-')
+    def parse_qemu_command_line_to_config(self, cmd_line_str: str):
+        """Analisa uma string de linha de comando QEMU usando shlex para robustez."""
+        try:
+            self.qemu_config.reset()
+            cleaned_str = cmd_line_str.replace('\\\n', ' ').replace('\\\r\n', ' ')
             
-            if arg_value_raw and arg_value_raw.startswith('"') and arg_value_raw.endswith('"'):
-                arg_value_raw = arg_value_raw[1:-1]
+            try:
+                args = shlex.split(cleaned_str)
+            except ValueError as e:
+                print(f"[WARN] Erro ao fazer shlex.split: {e}")
+                import traceback; traceback.print_exc()
+                return
 
-            if ',' in arg_value_raw or '=' in arg_value_raw:
-                parsed_value = self._parse_sub_options(arg_value_raw)
+            if args and 'qemu-system-' in args[0]:
+                self.qemu_config.all_args['qemu_executable'] = args.pop(0)
 
-                if parsed_value:
+            current_all_args = {}
+            current_extra_args_list: List[Tuple[str, Optional[str]]] = []
+            
+            i = 0
+            while i < len(args):
+                arg = args[i]
+                if not arg.startswith('-'):
+                    current_extra_args_list.append(('', arg))
+                    i += 1
+                    continue
 
-                    if arg_name in ['device', 'drive', 'audiodev', 'netdev']: 
+                arg_name = arg.lstrip('-')
+                is_flag_only = (i + 1 == len(args)) or (args[i+1].startswith('-'))
 
-                        if arg_name not in self.qemu_config.all_args:
-                            self.qemu_config.all_args[arg_name] = []
-                        self.qemu_config.all_args[arg_name].append(parsed_value)
+                if is_flag_only:
+                    current_all_args[arg_name] = True
+                    i += 1
+                else:
+                    value_str = args[i+1]
+                    parsed_value = value_str  # default
 
-                    else: 
-                        self.qemu_config.all_args[arg_name] = parsed_value
+                    if arg_name in ['device', 'drive', 'netdev', 'audiodev', 'machine', 'M', 'rtc', 'boot']:
+                        try:
+                            if arg_name == 'device':
+                                parsed_value = self._parse_device_string(value_str)
+                            elif arg_name == 'boot':
+                                parsed_value = self._parse_boot_string(value_str)
+                            else:
+                                parsed_value = self._parse_key_value_string(value_str)
+                        except Exception as e:
+                            print(f"[ERROR] Falha ao parsear {arg_name} com valor '{value_str}': {e}")
+                            import traceback; traceback.print_exc()
 
-                else: 
-                    self.qemu_config.all_args[arg_name] = arg_value_raw
+                    if arg_name in ['device', 'drive', 'netdev', 'audiodev']:
+                        current_all_args.setdefault(arg_name, []).append(parsed_value)
+                    else:
+                        current_all_args[arg_name] = parsed_value
+                    i += 2
 
-            elif arg_value_raw: 
-                self.qemu_config.all_args[arg_name] = arg_value_raw
+            self.qemu_config.all_args.update(current_all_args)
+            self.qemu_config.extra_args_list = current_extra_args_list
 
-            else: 
-                self.qemu_config.all_args[arg_name] = True
-
+        except Exception as e:
+            print(f"[FATAL] Erro geral no parse_qemu_command_line_to_config: {e}")
+            import traceback; traceback.print_exc()
 class QemuConfig:
     _cache = {}
     current_qemu_executable: str = ""
@@ -313,12 +255,12 @@ class QemuConfig:
             'smp': 2,
             'enable-kvm': False,
             'usb': False,
+            'usb-tablet': False,
+            'usb-mouse': False,
             'rtc': {'base': 'localtime', 'clock': 'host'},
             'nodefaults': False,
             'bios': '',
             'boot': {},
-            'vga': 'std',
-            'display': 'sdl',
             'device': [],
             'drive': [],
             'floppy': [],
@@ -333,7 +275,6 @@ class QemuConfig:
         return cls._cache[qemu_path]    
     
     def get_qemu_helper(self, current_qemu_executable: str):
-        print("[DEBUG] get_qemu_helper() chamado com:", current_qemu_executable)
         if current_qemu_executable:
             helper = self._get_helper(current_qemu_executable)
             return helper
@@ -393,160 +334,117 @@ class QemuConfig:
         # ou quando você intencionalmente define a config a partir de uma fonte GUI.
 
     def to_qemu_args_string(self) -> Tuple[str, str]:
-        """
-        Converte o dicionário all_args e extra_args_list em duas strings:
-        1. A linha de comando QEMU completa (incluindo o executável e extra args).
-        2. Uma string separada contendo apenas os 'extra args'.
-
-        Returns:
-            Tuple[str, str]: (full_qemu_command_string, extra_args_only_string)
-        """
         full_args_list: List[str] = []
-        gui_managed_args_list: List[str] = [] # Argumentos que são gerenciados pela GUI
-        extra_args_only_list: List[str] = [] # Apenas os argumentos extras
+        gui_managed_args_list: List[str] = []
+        extra_args_only_list: List[str] = []
 
-        # 1. Executável QEMU (sempre o primeiro)
         qemu_executable = self.all_args.get("qemu_executable")
         if qemu_executable:
             full_args_list.append(qemu_executable)
 
-        # 2. Argumentos gerenciados pela GUI (de self.all_args)
-        # É crucial que esta lógica reflita fielmente como sua GUI gerencia os args.
-        # Defina 'known_gui_args' para ser a lista de chaves que sua GUI realmente configura.
-        # Isso evita que argumentos que a GUI não entende, mas estão em all_args,
-        # sejam considerados "gerenciados".
-        # Vamos usar uma abordagem mais robusta: iterar sobre all_args e categorizar.
-        
-        # Ordem de processamento para args gerenciados pela GUI
-        # Isso garante que -M, -m, -cpu, -smp etc. venham antes de -device, -drive
-        # para uma linha de comando QEMU mais legível.
         ordered_keys = [
-            "qemu_executable", "M", "m", "cpu", "smp", "enable-kvm", "cpu-mitigations",
-            "usb", "rtc", "nodefaults", "bios", "boot"
-            # Adicione outras chaves de configuração principal aqui
+            "M", "m", "cpu", "smp", "enable-kvm", "cpu-mitigations",
+            "usb", "tablet-usb", "mouse-usb", "rtc", "nodefaults", "bios", "boot"
         ]
-        
-        # Processar argumentos em ordem conhecida
-        for key in ordered_keys:
-            if key not in self.all_args:
-                continue
-            value = self.all_args[key]
 
-            # Lógica para converter chave-valor para string QEMU
-            arg_str: Optional[str] = None
-            if key == "M": # Machine type
-                if isinstance(value, str):
-                    arg_str = f"-M {value}"
-                elif isinstance(value, dict) and 'type' in value:
-                    machine_type = value['type']
-                    options = [f"{k}={v}" if not isinstance(v, bool) else f"{k}={'on' if v else 'off'}" for k, v in value.items() if k != 'type']
-                    arg_str = f"-M {machine_type},{','.join(options)}" if options else f"-M {machine_type}"
-            elif key == "m": # Memory
-                if isinstance(value, int) and value > 0:
-                    arg_str = f"-m {value}"
-            elif key == "cpu":
-                if isinstance(value, str) and value:
-                    arg_str = f"-cpu {value}"
-            elif key == "smp":
-                if isinstance(value, int) and value > 0:
-                    arg_str = f"-smp {value}"
-                elif isinstance(value, dict):
-                    sockets = value.get("sockets", 0)
-                    cores = value.get("cores", 0)
-                    threads = value.get("threads", 0)
-                    smp_parts = []
-                    if sockets > 0: smp_parts.append(f"sockets={sockets}")
-                    if cores > 0: smp_parts.append(f"cores={cores}")
-                    if threads > 0: smp_parts.append(f"threads={threads}")
-                    if smp_parts:
-                        arg_str = f"-smp {','.join(smp_parts)}"
-            elif key == "enable-kvm" and value is True:
-                arg_str = "-enable-kvm"
+        for key in ordered_keys:
+            if key not in self.all_args: continue
+            value = self.all_args.get(key)
+            arg_str = ""
+            
+            if key == "M" and value:
+                if isinstance(value, str): arg_str = f"-M {value}"
+                elif isinstance(value, dict) and "type" in value:
+                    options = [f"{k}={v}" for k, v in value.items() if k != "type"]
+                    arg_str = f"-M {value['type']}" + (f",{','.join(options)}" if options else "")
+            elif key == "m" and isinstance(value, int) and value > 0: arg_str = f"-m {value}"
+            elif key == "cpu" and value: arg_str = f"-cpu {value}"
+            elif key == "smp" and value:
+                if isinstance(value, int) and value > 0: arg_str = f"-smp {value}"
+                elif isinstance(value, dict): arg_str = f"-smp {','.join([f'{k}={v}' for k, v in value.items()])}"
+            elif key == "enable-kvm" and value is True: arg_str = "-enable-kvm"
             elif key == "cpu-mitigations":
-                if value is True or str(value).lower() == 'on': arg_str = "-cpu-mitigations on"
-                elif value is False or str(value).lower() == 'off': arg_str = "-cpu-mitigations off"
+                if str(value).lower() in ["on", "true"]: arg_str = "-cpu-mitigations on"
+                elif str(value).lower() in ["off", "false"]: arg_str = "-cpu-mitigations off"
             elif key == "usb" and value is True:
                 arg_str = "-usb"
-            elif key == "rtc":
-                if value is True:
-                    arg_str = "-rtc base=localtime,clock=host"
-                elif isinstance(value, dict):
-                    rtc_parts = [f"{k}={v}" for k,v in value.items()]
-                    arg_str = f"-rtc {','.join(rtc_parts)}"
-            elif key == "nodefaults" and value is True:
-                arg_str = "-nodefaults"
-            elif key == "bios" and value:
-                arg_str = f"-bios {value}"
-            elif key == "boot":
-                if isinstance(value, str) and value:
-                    arg_str = f"-boot {value}"
-                elif isinstance(value, dict):
-                    boot_str_parts = []
-                    if 'order' in value: boot_str_parts.append(value['order'])
-                    if 'menu' in value: boot_str_parts.append(f"menu={value['menu']}")
-                    if boot_str_parts:
-                        arg_str = f"-boot {','.join(boot_str_parts)}"
-            
-            # Adicione outros argumentos gerenciados pela GUI aqui
-
-            if arg_str:
-                gui_managed_args_list.append(arg_str)
-                # Remove do all_args temporariamente para não reprocessar como "extra"
-                # Isso é mais seguro para a lógica do loop posterior
-                # Mas para esta abordagem, não remova, apenas processe explicitamente
-        
-        # Processar argumentos de lista (device, drive, etc.)
-        # Esses geralmente não têm uma ordem fixa em relação aos outros,
-        # mas QEMU os trata como múltiplos argumentos do mesmo tipo.
-        list_keys = ["device", "drive", "netdev", "chardev", "monitor", "serial"]
-        for key in list_keys:
-            if key in self.all_args and isinstance(self.all_args[key], list):
-                for item_value in self.all_args[key]:
-                    # Adapte a formatação do item conforme sua estrutura.
-                    # Ex: para drive_data = {'file': 'path', 'if': 'ide'}
-                    item_str = ""
-                    if isinstance(item_value, dict):
-                        # Lógica para formatar dicionários de drives/devices
-                        parts = []
-                        if 'id' in item_value: parts.append(f"id={item_value['id']}")
-                        if 'file' in item_value: parts.append(f"file={item_value['file']}")
-                        if 'if' in item_value: parts.append(f"if={item_value['if']}")
-                        # Adicione outras propriedades comuns para devices/drives
-                        # Ex: 'media', 'format', 'bus', 'unit'
-                        for k, v in item_value.items():
-                            if k not in ['id', 'file', 'if', 'media', 'format', 'bus', 'unit']:
-                                parts.append(f"{k}={v}")
-                        item_str = ','.join(parts)
-                        # Se for um device simples como "VGA"
-                        if not parts and isinstance(item_value, str):
-                             item_str = item_value
-                    elif isinstance(item_value, str):
-                        item_str = item_value
+            elif key == "usb-tablet" and value is True:
+                arg_str = "-device usb-tablet" # Gera o argumento -device correto
+            elif key == "usb-mouse" and value is True:
+                arg_str = "-device usb-mouse" # Gera o argumento -device correto
+            elif key == "rtc" and isinstance(value, dict): arg_str = f"-rtc {','.join([f'{k}={v}' for k, v in value.items()])}"
+            elif key == "nodefaults" and value is True: arg_str = "-nodefaults"
+            elif key == "bios" and value: arg_str = f"-bios {value}"
+            elif key == "boot" and value:
+                boot_parts = []
+                
+                # Primeiro, lida com o dicionário que o parser cria
+                if isinstance(value, dict):
+                    # Adiciona a ordem de boot, se existir
+                    if 'order' in value:
+                        boot_parts.append(value['order'])
                     
-                    if item_str:
-                        gui_managed_args_list.append(f"-{key} {item_str}")
-            # Se for uma string única (não lista), isso seria um caso de edge ou legacy.
-            elif key in self.all_args and isinstance(self.all_args[key], str):
-                 gui_managed_args_list.append(f"-{key} {self.all_args[key]}")
+                    # Adiciona menu=on APENAS se estiver explicitamente 'on'
+                    if str(value.get('menu')).lower() == 'on':
+                        boot_parts.append("menu=on")
 
+                # Lida com o caso de ser uma string simples
+                elif isinstance(value, str):
+                    boot_parts.append(value)
 
-        # 3. Adicionar argumentos "extras" (extra_args_list)
-        # Estes são os argumentos que o AppContext não conseguiu mapear para campos da GUI
-        # e foram armazenados separadamente.
+                # Monta a string final apenas se houver partes a serem unidas
+                if boot_parts:
+                    arg_str = f"-boot {','.join(boot_parts)}"
+            
+            if arg_str: 
+                gui_managed_args_list.append(arg_str)
+
+        # A lógica para os outros devices, drives e floppies permanece a mesma que já corrigimos.
+        device_entries = self.all_args.get("device", [])
+        if isinstance(device_entries, dict): device_entries = [device_entries]
+        for device in device_entries:
+            if not isinstance(device, dict): continue
+            device_copy = device.copy()
+            interface_name = device_copy.pop('interface', None)
+            if not interface_name: continue
+            other_parts = [f"{k}={v}" for k, v in device_copy.items()]
+            full_device_str = interface_name
+            if other_parts:
+                full_device_str += "," + ",".join(other_parts)
+            gui_managed_args_list.append(f"-device {full_device_str}")
+
+        drives = self.all_args.get("drive", [])
+        if isinstance(drives, dict): drives = [drives]
+        for drive in drives:
+            if isinstance(drive, dict): gui_managed_args_list.append(f"-drive {','.join([f'{k}={v}' for k, v in drive.items()])}")
+
+        floppies = self.all_args.get("floppy", [])
+        if isinstance(floppies, dict): floppies = [floppies]
+        for floppy in floppies:
+            if isinstance(floppy, dict):
+                unit, fpath = floppy.get("unit"), floppy.get("file")
+                if fpath and unit is not None:
+                    if unit == 0: gui_managed_args_list.append(f"-fda {fpath}")
+                    elif unit == 1: gui_managed_args_list.append(f"-fdb {fpath}")
+
+        for key in ["netdev", "chardev", "monitor", "serial"]:
+            items = self.all_args.get(key, [])
+            if isinstance(items, dict): items = [items]
+            for item in items:
+                if isinstance(item, dict): gui_managed_args_list.append(f"-{key} {','.join([f'{k}={v}' for k, v in item.items()])}")
+                elif isinstance(item, str): gui_managed_args_list.append(f"-{key} {item}")
+        
         for arg_name, arg_value in self.extra_args_list:
-            formatted_value = ''
-            if arg_value is not None: # Pode ser uma flag sem valor
-                formatted_value = f'"{arg_value}"' if ' ' in str(arg_value) else str(arg_value)
-            
-            extra_arg_str = f"-{arg_name} {formatted_value}".strip() # strip para flags sem valor
-            
-            extra_args_only_list.append(extra_arg_str) # Para a string separada de extras
-            full_args_list.append(extra_arg_str) # Adiciona à lista completa também
-
-        # Concatenar todos os argumentos para a linha de comando completa
-        full_qemu_command_string = ' \\\n'.join(filter(None, full_args_list + gui_managed_args_list))
-        extra_args_only_string = ' \\\n'.join(filter(None, extra_args_only_list))
-
+            if arg_value is None: arg_str = f"-{arg_name}"
+            else:
+                val = f'"{arg_value}"' if ' ' in str(arg_value) else str(arg_value)
+                arg_str = f"-{arg_name} {val}"
+            extra_args_only_list.append(arg_str)
+        
+        full_args_list.extend(gui_managed_args_list)
+        full_args_list.extend(extra_args_only_list)
+        full_qemu_command_string = ' \\\n'.join(list(filter(None, full_args_list)))
+        extra_args_only_string = ' \\\n'.join(list(filter(None, extra_args_only_list)))
         return full_qemu_command_string, extra_args_only_string
 
     def update_all_args(self, new_args: Dict[str, Any]):
@@ -565,14 +463,18 @@ class QemuConfig:
                 self.all_args[key] = value
 
     def update_qemu_config_from_page(self, data_dict: Dict[str, Any]):
-        print("[DEBUG] update_qemu_config_from_page() chamado")
-        print("[DEBUG] qemu_executable =", data_dict.get("qemu_executable"))
         self._is_modified = True
 
         for arg_name, arg_value in data_dict.items():
-            self.all_args[arg_name] = arg_value
+            if isinstance(arg_value, list) and arg_name in self.all_args:
+                # Mescla listas ao invés de sobrescrever para evitar perder dados
+                # Pode ser ajustado conforme a lógica exata de merge desejada
+                existing_list = self.all_args.get(arg_name, [])
+                # Opcional: evitar duplicatas, etc
+                self.all_args[arg_name] = arg_value
+            else:
+                self.all_args[arg_name] = arg_value
 
-        # Atualiza QemuHelper (se aplicável)
         if "qemu_executable" in data_dict:
             self.current_qemu_executable = data_dict["qemu_executable"]
       

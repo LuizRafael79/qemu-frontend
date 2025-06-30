@@ -266,57 +266,33 @@ class OverviewPage(QWidget):
         self.custom_path.clear()
 
     def on_launch_clicked(self):
-        bin_path = self.app_context.qemu_config.current_qemu_executable
+        # Imports necessários no início do arquivo
+        import shlex
+        import subprocess
+        import traceback
 
-        if not bin_path:
-            self.console_output.append("No QEMU binary selected.")
-            return
-
-        # 1. Obtain the QemuConfig object from the AppContext
-        qemu_config_object = self.app_context.get_qemu_config_object()
-        
-        # 2. Call QemuConfig to generate the Qemu Parse of arguments
-        full_qemu_cmd_string = qemu_config_object.to_qemu_args_string()
-        
-        # 3. Use the AppContext to generate the Qemu Args list to execute VM
-        qemu_args_list = self.app_context.split_shell_command(full_qemu_cmd_string[0])
-        # 4. Launch the Qemu process, and redirect all output to the Console Window Tab
-        self.console_output.append(f"Launching: {bin_path} {' '.join(shlex.quote(arg) for arg in qemu_args_list)}")
-        
         try:
-            result = subprocess.run(
-                [bin_path] + qemu_args_list,  # Pass the formated arguments to Qemu
-                capture_output=True, 
-                text=True, 
-                timeout=60, 
-                check=False # Don't raise an exception if the process enter in a non-zero status
-            )
-            self.console_output.append(result.stdout.strip())
-            self.console_output.append(result.stderr.strip())
-            self.console_output.append(f"QEMU process exited with code: {result.returncode}")
-        except subprocess.TimeoutExpired:
-            self.console_output.append(f"Qemu execute, time-out. The process excedded the 60 seconds time limit.")
-        except FileNotFoundError:
-            self.console_output.append(f"Error: Qemu Binary not found in: '{bin_path}'.")
+            # 1. Gera a lista de comando completa a partir da sua lógica
+            qemu_config_object = self.app_context.get_qemu_config_object()
+            full_qemu_cmd_tuple = qemu_config_object.to_qemu_args_string()
+            final_command_list = self.app_context.split_shell_command(full_qemu_cmd_tuple[0])
+
+            if not final_command_list:
+                self.console_output.appendPlainText("ERRO: Falha ao gerar a lista de comando final.")
+                return
+
+            # Log para a UI usando o método correto
+            self.console_output.appendPlainText(f"Iniciando: {' '.join(shlex.quote(arg) for arg in final_command_list)}")
+
+            # 2. Executa o QEMU em um novo processo, permitindo que a janela apareça
+            subprocess.Popen(final_command_list)
+            
+            self.console_output.appendPlainText("QEMU foi iniciado em uma nova janela (se não houve erros).")
+
         except Exception as e:
-            self.console_output.append(f"Fail to launch Qemu. Unexpected error: {e}")
-
-    def _on_args_changed(self):
-        """
-        Called when the text in `qemuargs_output` (the main input field) changes.
-        Starts the GUI parsing and updating process.
-        """
-        if self._internal_text_change: # Block recursion if the output has changed/edited
-            return
-
-        raw_cmd_line = self.qemuargs_output.toPlainText().strip()
-        
-        # Call AppContext to parse the text inputed in QemuArgs Window Tab
-        if raw_cmd_line:
-            self.qemu_argument_parser.parse_qemu_command_line(raw_cmd_line)
-        else:
-            self.qemu_config.reset()
-            self.refresh_from_qemu_config() # not implemented yet
+            # Se qualquer erro ocorrer durante a GERAÇÃO do comando, ele será pego aqui
+            self.console_output.appendPlainText("--- ERRO INESPERADO AO PREPARAR O COMANDO ---")
+            self.console_output.appendPlainText(traceback.format_exc())
 
     def refresh_display_from_qemu_config(self):
         """
@@ -333,15 +309,16 @@ class OverviewPage(QWidget):
             qemu_config = self.app_context.get_qemu_config_object()
             full_cmd_str, extra_args_str = qemu_config.to_qemu_args_string()
             # Refresh the "Qemu Args" Window Tab
+            self.qemuargs_output.blockSignals(True)
             self.qemuargs_output.setPlainText(full_cmd_str)
+            self.qemuargs_output.blockSignals(False)
             
             # Refresh the "Extra Args" Window Tab
+            self.qemuargs_output.blockSignals(True)
             self.qemuextraargs_output.setPlainText(extra_args_str)
-
-            print("[INFO][DEBUG] OverviewPage: Page refresh by QemuConfig.")
+            self.qemuargs_output.blockSignals(False)
 
         except Exception as e:
-            print(f"[WARN][DEBUG] OverviewPage: Error refreshing page. Error: {e}")
             self.qemuargs_output.setPlainText("[ERROR] Fail to generate QemuArgs.")
             self.qemuextraargs_output.setPlainText("[ERROR] Fail to generate QemuExtraArgs.")
         finally:
@@ -359,10 +336,9 @@ class OverviewPage(QWidget):
         raw_cmd_line = self.qemuargs_output.toPlainText().strip()
         
         if raw_cmd_line:            
-            print("[INFO] OverviewPage: Text inputed by user. Start/Restarting parse timer (500ms).")
-            self._parse_timer.start() 
+            self._parse_timer.start()
+            self.app_context.parse_cli_and_notify(raw_cmd_line) 
         else:            
-            print("[INFO] OverviewPage: QemuArgs Window is cleaned by user. Reseting configuration.")
             self._parse_timer.stop() 
             self.app_context.get_qemu_config_object().reset()
             # Emit a signal to RESET all GUI's to default or last saved state.
@@ -370,16 +346,24 @@ class OverviewPage(QWidget):
 
     def _do_parse_qemu_command(self):
         """
-        This method is called by QTimer after the delay.
-        It triggers the command line parsing in the AppContext.
+        Este método é chamado pelo QTimer após o delay.
+        Ele aciona o parse da linha de comando e NOTIFICA as outras páginas.
         """
         raw_cmd_line = self.qemuargs_output.toPlainText().strip()
         
         if raw_cmd_line:
-            print(f"[INFO] OverviewPage: Timer Started. Starting reverse parse from inputed args: '{raw_cmd_line}'")
-            self.qemu_argument_parser.parse_qemu_command_line_to_config(raw_cmd_line)
+            try:
+                print(f"[INFO] OverviewPage: Timer Started. Starting reverse parse from inputed args: '{raw_cmd_line}'")
+                self.qemu_argument_parser.parse_qemu_command_line_to_config(raw_cmd_line)
+                self.app_context.parse_cli_and_notify(raw_cmd_line)
+                self.app_context.mark_modified()
+            except Exception as e:
+                print(f"[ERROR] Exception during parse_qemu_command_line_to_config: {e}")
+                import traceback
+                traceback.print_exc()
         else:
-            print("[WARN]OverviewPage: Timer Started, but the QemuArgs status is clean, report that in GitHub.")
+            self.app_context.get_qemu_config_object().reset()
+            self.app_context.qemu_config_updated.emit(self.app_context.get_qemu_config_object())
 
     def resolve_dependencies(self):
         self.hardware_page = self.app_context.get_page("hardware")
@@ -396,6 +380,8 @@ class OverviewPage(QWidget):
 
         # The use of type: ignore is only for the purpose of the IDE plugin, like Pylance in Vscode
         # is not able to detect the types of functions arguments (false positive)
+
+
 
 
 

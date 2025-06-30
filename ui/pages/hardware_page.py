@@ -6,7 +6,8 @@
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QCheckBox, QHBoxLayout,
-    QPushButton, QSpinBox, QGroupBox, QMessageBox, QLineEdit, QFileDialog
+    QPushButton, QSpinBox, QGroupBox, QLineEdit, QFileDialog,
+    QListWidget, QListWidgetItem, QPushButton, QAbstractItemView
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QIntValidator 
@@ -35,7 +36,6 @@ BOOT_ORDER = "boot"
 class HardwarePage(QWidget):
     hardware_config_changed = pyqtSignal() 
     def __init__(self, app_context: AppContext):
-        print("[INIT] HardwarePage Instanced")
         super().__init__()
         self.app_context = app_context
         self.qemu_config = self.app_context.qemu_config
@@ -85,12 +85,20 @@ class HardwarePage(QWidget):
         hbox_vcpu.addWidget(QLabel("vCPU Allocation:"))
         self.smp_cpu_spinbox = QSpinBox()
         self.smp_cpu_spinbox.setRange(1, 256)
-        self.smp_cpu_spinbox.setValue(4) # Initial default value
+        self.smp_cpu_spinbox.setValue(4)  # Initial default value
         hbox_vcpu.addWidget(self.smp_cpu_spinbox)
         cpus_layout.addLayout(hbox_vcpu)
 
+        # Agora adiciona o aviso **DENTRO** do grupo CPUs, após o spinbox
+        self.vcpu_warning_label = QLabel()
+        self.vcpu_warning_label.setStyleSheet("color: yellow; font-weight: italic;")
+        self.vcpu_warning_label.setVisible(False)
+        self.vcpu_warning_label.setText("⚠️ Atenção: vCPUs excedem CPUs físicas do host!")
+        cpus_layout.addWidget(self.vcpu_warning_label)
+
         cpus_group.setLayout(cpus_layout)
         parent_layout.addWidget(cpus_group)
+
 
     def _setup_advanced_cpu_widgets(self, parent_layout: QVBoxLayout):
         adv_group = QGroupBox("Advanced CPU Config")
@@ -199,16 +207,26 @@ class HardwarePage(QWidget):
         layout.addLayout(hbox_bios)
 
         layout.addWidget(QLabel("Boot order:"))
-        self.boot_combo = QComboBox()
-        self.boot_combo.addItems([
-            "",  # Empty/default
-            "c",  # Disk
-            "d",  # CD
-            "menu=on",
-            "c,menu=on",
-            "d,menu=on"
-        ])
-        layout.addWidget(self.boot_combo)
+
+        self.boot_list = QListWidget()
+        self.boot_list.setDragDropMode(QAbstractItemView.DragDrop)
+        self.boot_list.setDefaultDropAction(Qt.MoveAction)
+        self.boot_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.boot_list.setDragEnabled(True)
+        self.boot_list.viewport().setAcceptDrops(True)
+        self.boot_list.setDropIndicatorShown(True)
+        self.boot_list.model().rowsMoved.connect(self.save_boot_order)
+
+        # Exemplo de dispositivos
+        boot_devices = ["Hard Drive (c)", "CD-ROM (d)", "Network (n)"]
+        for dev in boot_devices:
+            self.boot_list.addItem(QListWidgetItem(dev))
+
+        layout.addWidget(self.boot_list)
+
+        save_btn = QPushButton("Save Boot Order")
+        save_btn.clicked.connect(self.save_boot_order)
+        layout.addWidget(save_btn)
 
         group.setLayout(layout)
         parent_layout.addWidget(group)
@@ -227,6 +245,9 @@ class HardwarePage(QWidget):
         self.smp_cores_spinbox.valueChanged.connect(self.hardware_config_changed)
         self.smp_threads_spinbox.valueChanged.connect(self.hardware_config_changed)
 
+        self.smp_passthrough_checkbox.stateChanged.connect(self._on_passthrough_toggled)
+        self.topology_checkbox.stateChanged.connect(self._on_topology_toggled)
+
         self.machine_combo.currentTextChanged.connect(self.hardware_config_changed)
         self.mem_combo.currentTextChanged.connect(self.hardware_config_changed)
         self.kvm_accel_checkbox.stateChanged.connect(self.hardware_config_changed)
@@ -236,8 +257,8 @@ class HardwarePage(QWidget):
         self.tablet_usb_checkbox.stateChanged.connect(self.hardware_config_changed)
         self.rtc_checkbox.stateChanged.connect(self.hardware_config_changed)
         self.nodefaults_checkbox.stateChanged.connect(self.hardware_config_changed)
-        self.bios_lineedit.textChanged.connect(self.hardware_config_changed)
-        self.boot_combo.currentTextChanged.connect(self.hardware_config_changed)
+        self.boot_list.model().rowsMoved.connect(self.save_boot_order)
+
         # Bios signal is separated because the QDialog is a different Widget and
         # needs to be updated separately
         self.bios_browse_btn.clicked.connect(self.on_bios_browse_clicked)
@@ -246,6 +267,12 @@ class HardwarePage(QWidget):
         self.app_context.qemu_config_updated.connect(self.update_qemu_helper)
 
     # === Configuration Updates ===
+
+    def save_boot_order(self):
+        order = []
+        for i in range(self.boot_list.count()):
+            order.append(self.boot_list.item(i).text())
+        print("[DEBUG] Boot order:", order)
 
     def _on_hardware_config_changed(self):
         """
@@ -267,8 +294,6 @@ class HardwarePage(QWidget):
 
         if passthrough_enabled:
             hardware_data['cpu'] = HOST_CPU
-            # if cpu is "host" or "max" is don't necessary to add to dict because
-            # is implicit. "passtrhrough is only used for host or max options"
         elif cpu_val and cpu_val != DEFAULT_CPU:
             hardware_data['cpu'] = cpu_val
 
@@ -278,47 +303,55 @@ class HardwarePage(QWidget):
             threads = self.smp_threads_spinbox.value()
             hardware_data['smp'] = {'sockets': sockets, 'cores': cores, 'threads': threads}
         elif not passthrough_enabled:
-            # only if not passtrhough, the "SMP Spinbox" are show and be used
-            # passtrhough automatically set's the cpus to guest a HALF of host have
             smp_val = self.smp_cpu_spinbox.value()
             if smp_val != DEFAULT_MEMORY_QEMU_ARG: 
                 hardware_data['smp'] = smp_val
 
         # CPU Mitigations (-cpu-mitigations)
         if self.cpu_mitigations_checkbox.isChecked():
-            hardware_data['cpu-mitigations'] = 'on' # QEMU waits 'on' or 'off' that's barelly works actually
+            hardware_data['cpu-mitigations'] = 'on'
         else:
-            hardware_data['cpu-mitigations'] = 'off' # this option is a proof-of-concept and not work correctly actually
+            hardware_data['cpu-mitigations'] = 'off'
 
         # Machine Type (-machine)
         machine_val = self.machine_combo.currentText().strip()
         if machine_val and machine_val != DEFAULT_MACHINE_QEMU_ARG:
             hardware_data['machine'] = machine_val
-        # if else, QemuConfig use the Default Values, for that reason, ELSE is
-        # not needed here.
 
         # Memory (-m)
         mem_val_str = self.mem_combo.currentText().strip()
         try:
             mem_val_int = int(mem_val_str)
-            if mem_val_int != DEFAULT_MEMORY_QEMU_ARG: # Compares with the Default memory value
+            if mem_val_int != DEFAULT_MEMORY_QEMU_ARG:
                 hardware_data['m'] = mem_val_int
         except ValueError:
-            # If not a valid value, ignore and use the default value
-            # also, show a warning in Console to help advanced users
-            print(f"HardwarePage: memory value is invalid number: {mem_val_str}")
-            pass # Same case of above, QemuConfig use the default values or
-                 # use fix that for the user
+            pass
 
         # KVM Acceleration (-enable-kvm)
         hardware_data['enable-kvm'] = self.kvm_accel_checkbox.isChecked()
 
-        # USB (-usb)
+        # --- USB (BLOCO CORRIGIDO) ---
         hardware_data['usb'] = self.usb_checkbox.isChecked()
+
+        current_devices = list(self.qemu_config.get("device", []))
+
+        other_devices = [
+            dev for dev in current_devices
+            if isinstance(dev, dict) and dev.get("interface") not in ["usb-tablet", "usb-mouse"]
+        ]
+
+        new_device_list = other_devices
+        if self.tablet_usb_checkbox.isChecked():
+            new_device_list.append({"interface": "usb-tablet"})
+        
+        if self.mouse_usb_checkbox.isChecked():
+            new_device_list.append({"interface": "usb-mouse"})
+
+        hardware_data['device'] = new_device_list
 
         # RTC (-rtc)
         if self.rtc_checkbox.isChecked():
-            hardware_data['rtc'] = {'base': 'localtime', 'clock': 'host'} # Default for RTC
+            hardware_data['rtc'] = {'base': 'localtime', 'clock': 'host'}
         else:
             hardware_data['rtc'] = False
 
@@ -330,27 +363,77 @@ class HardwarePage(QWidget):
         if bios_path:
             hardware_data['bios'] = bios_path
 
-        # Boot order (-boot)
-        boot_val = self.boot_combo.currentText().strip()
-        if boot_val:
-            if '=' in boot_val: # ex: 'menu=on'
-                hardware_data['boot'] = self.qemu_argument_parser._parse_qemu_key_value_string(boot_val)
-            else: # ex: 'c' ou 'd'
-                hardware_data['boot'] = {'order': boot_val}
+        # --- Boot order (-boot) (BLOCO CORRIGIDO) ---
+        # Lê a ordem dos itens diretamente do QListWidget
+        order_chars = []
+        for i in range(self.boot_list.count()):
+            item_text = self.boot_list.item(i).text()
+            if "(c)" in item_text:
+                order_chars.append('c')
+            elif "(d)" in item_text:
+                order_chars.append('d')
+            elif "(n)" in item_text:
+                order_chars.append('n')
+        
+        boot_order_str = "".join(order_chars)
+
+        if boot_order_str:
+            # Salva no formato de dicionário para ser consistente
+            hardware_data['boot'] = {'order': boot_order_str}
         else:
-            # If empty value or not configured, QemuConfig assume the default
-            # and set the boot order as "-boot cd,menu=on" in case of more media
-            # created and connected to VM (example more to 2 cdroms or 3 disks)
-            pass
-
-
+            # Garante que se a lista estiver vazia, a chave 'boot' seja removida
+            if 'boot' in hardware_data:
+                del hardware_data['boot']
+        
         # Send data dict to AppContext.
         self.qemu_config.update_qemu_config_from_page(hardware_data)
         overview_page = self.app_context.get_page("overview")
         if overview_page:
             overview_page.refresh_display_from_qemu_config()
         self.app_context.mark_modified()        
-        print("[INFO] HardwarePage: Collected GUI information and sended to AppContext.")
+        self._update_warning_only()
+        self._update_cpu_config_and_ui()
+
+    def _update_warning_only(self):
+        # Calcule smp_cpus_calculated com base no estado atual dos widgets:
+        if self.topology_checkbox.isChecked():
+            sockets = self.smp_sockets_spinbox.value()
+            cores = self.smp_cores_spinbox.value()
+            threads = self.smp_threads_spinbox.value()
+            smp_cpus_calculated = sockets * cores * threads
+        elif self.smp_passthrough_checkbox.isChecked():
+            smp_cpus_calculated = self.host_cpu_count
+        else:
+            smp_cpus_calculated = self.smp_cpu_spinbox.value()
+
+        self.vcpu_warning_label.setVisible(smp_cpus_calculated > self.host_cpu_count)
+
+    def _on_passthrough_toggled(self):
+        is_passthrough = self.smp_passthrough_checkbox.isChecked()
+
+        # Oculta checkbox topology e grupo topology quando passthrough ativo
+        self.topology_checkbox.setVisible(not is_passthrough)
+        self.topology_group.setVisible(not is_passthrough and self.topology_checkbox.isChecked())
+
+        # Mostra spinbox CPU simples só se passthrough e topology desativados
+        self.smp_cpu_spinbox.setEnabled(not is_passthrough and not self.topology_checkbox.isChecked())
+
+        # Se passthrough ativado, força desmarcar topology
+        if is_passthrough:
+            self.topology_checkbox.setChecked(False)
+
+
+    def _on_topology_toggled(self):
+        is_checked = self.topology_checkbox.isChecked()
+
+        # Mostra/oculta grupo topology
+        self.topology_group.setVisible(is_checked)
+
+        # Mostra/oculta spinbox CPU simples
+        self.smp_cpu_spinbox.setEnabled(not is_checked)
+
+        self._update_cpu_config_and_ui()
+
 
     def on_bios_browse_clicked(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select BIOS file")
@@ -358,74 +441,71 @@ class HardwarePage(QWidget):
             self.bios_lineedit.setText(path)
 
     def _update_cpu_config_and_ui(self):
-        """
-        Atualiza a lógica de habilitação/visibilidade dos widgets de CPU/Topology
-        com base nos estados atuais dos checkboxes e comboboxes.
-        Esta função é chamada para REAGIR a mudanças na UI ou quando a página é carregada.
-        """
-        if self._loading_config: # Se estamos carregando a config, não aplicamos lógica de UI ainda.
+        if self._loading_config:
             return
-        
-        self._updating_cpu_ui = True # Ativa a flag para indicar que a UI está sendo atualizada por código
-        self._set_cpu_signals_blocked(True) # Bloqueia sinais de CPU/SMP para evitar re-entrância
+
+        self._updating_cpu_ui = True
+        self._set_cpu_signals_blocked(True)
 
         try:
             current_cpu = self.cpu_combo.currentText()
             passthrough_enabled = self.smp_passthrough_checkbox.isChecked()
-            # Desabilita combo de CPU se passthrough estiver ativo            
             topology_enabled = self.topology_checkbox.isChecked()
 
             is_host_cpu_model = (current_cpu == HOST_CPU or current_cpu == "max")
 
-            # Apenas mostra checkbox de passthrough se cpu for "host" ou "max"
-            self.smp_passthrough_checkbox.setVisible(is_host_cpu_model)
-
-            # Se não for "host" ou "max", esconde o checkbox e garante que esteja desmarcado
-            if not is_host_cpu_model:
+            # Mostrar passthrough somente se cpu for host ou max
+            if is_host_cpu_model:
+                self.smp_passthrough_checkbox.setVisible(True)
+            else:
                 self.smp_passthrough_checkbox.setChecked(False)
                 self.smp_passthrough_checkbox.setVisible(False)
                 passthrough_enabled = False
-            else:
-                self.smp_passthrough_checkbox.setVisible(True)
-                # Deixa o valor como está — usuário pode marcar ou desmarcar
 
-            # Topology só pode estar habilitada se passthrough NÃO estiver ativo
+            # Topology só pode ser habilitada se passthrough NÃO estiver ativo
             if passthrough_enabled:
-                self.topology_checkbox.setChecked(False) # Desmarca topologia
-                self.topology_checkbox.setEnabled(False) # Desabilita checkbox de topologia
-                self.topology_group.setVisible(False) # Esconde grupo de topologia
-                topology_enabled = False # Atualiza a variável local
+                if self.topology_checkbox.isChecked():
+                    self.topology_checkbox.setChecked(False)
+                self.topology_checkbox.setEnabled(False)
+                self.topology_group.setVisible(False)
+                topology_enabled = False
             else:
-                self.topology_checkbox.setEnabled(True) # Habilita checkbox de topologia
-                self.topology_group.setVisible(topology_enabled) # Mostra/esconde grupo de topologia
+                self.topology_checkbox.setEnabled(True)
+                self.topology_group.setVisible(topology_enabled)
 
-            # vCPU spinbox só habilitado se topologia NÃO estiver ativada
-            self.smp_cpu_spinbox.setEnabled(not topology_enabled)
+            # vCPU Spinbox sempre visível
+            self.smp_cpu_spinbox.setVisible(True)
 
-            # Sincroniza o smp_cpu_spinbox para refletir a topologia ou passthrough
-            smp_cpus_calculated = 0
+            # Calcula o número total de vCPUs
             if topology_enabled:
                 sockets = self.smp_sockets_spinbox.value()
                 cores = self.smp_cores_spinbox.value()
                 threads = self.smp_threads_spinbox.value()
-                smp_cpus_calculated = sockets * cores * threads
+                vcpus_total = sockets * cores * threads
             elif passthrough_enabled:
-                smp_cpus_calculated = self.host_cpu_count
+                vcpus_total = self.host_cpu_count
             else:
-                smp_cpus_calculated = self.smp_cpu_spinbox.value()
+                vcpus_total = self.smp_cpu_spinbox.value()
 
-            # Evita que o spinbox mude durante o carregamento de config
-            if not self._loading_config and self.smp_cpu_spinbox.value() != smp_cpus_calculated:
-                self.smp_cpu_spinbox.setValue(smp_cpus_calculated)
+            self._last_topology_vcpus = vcpus_total
 
-            # Alerta se vCPUs selecionadas ultrapassam CPUs do host (apenas um aviso)
-            if smp_cpus_calculated > self.host_cpu_count and not self._loading_config: # Não alerta durante carregamento
-                QMessageBox.warning(self, "vCPU Warning",
-                                    f"vCPUs selecionadas ({smp_cpus_calculated}) excedem CPUs físicas do host ({self.host_cpu_count}).")
+            # Atualiza spinbox com total e estado de edição
+            self.smp_cpu_spinbox.blockSignals(True)
+            self.smp_cpu_spinbox.setValue(vcpus_total)
+            self.smp_cpu_spinbox.setEnabled(not topology_enabled and not passthrough_enabled)
+            self.smp_cpu_spinbox.setVisible(True)
+            self.smp_cpu_spinbox.blockSignals(False)
+
+            # Atualiza aviso de excesso de CPUs
+            self.vcpu_warning_label.setVisible(vcpus_total > self.host_cpu_count)
+
+            # Mostrar/ocultar checkbox de passthrough
+            self.smp_passthrough_checkbox.setVisible(is_host_cpu_model)
+            self.smp_passthrough_checkbox.setEnabled(not topology_enabled)
 
         finally:
-            self._updating_cpu_ui = False # Desativa a flag
-            self._set_cpu_signals_blocked(False) # Desbloqueia sinais
+            self._updating_cpu_ui = False
+            self._set_cpu_signals_blocked(False)
 
     def _set_cpu_signals_blocked(self, blocked: bool):
         widgets = [
@@ -475,8 +555,8 @@ class HardwarePage(QWidget):
             self.smp_cpu_spinbox, self.cpu_mitigations_checkbox,
             self.topology_checkbox, self.smp_sockets_spinbox,
             self.smp_cores_spinbox, self.smp_threads_spinbox,
-            self.usb_checkbox, self.rtc_checkbox, self.nodefaults_checkbox,
-            self.bios_lineedit, self.boot_combo
+            self.usb_checkbox, self.tablet_usb_checkbox, self.mouse_usb_checkbox,
+            self.rtc_checkbox, self.nodefaults_checkbox, self.boot_list
         ]
         for w in widgets:
             if isinstance(w, QWidget):
@@ -485,8 +565,6 @@ class HardwarePage(QWidget):
     # === QEMU Helper Updates ===
 
     def update_qemu_helper(self):
-        print(f"[DEBUG] Tipo de self.qemu_config: {type(self.qemu_config)}")
-        print("[DEBUG] HardwarePage.update_qemu_helper()")
         bin_path = self.qemu_config.current_qemu_executable if self.qemu_config else None
         if not bin_path:
             self.qemu_helper = None
@@ -512,25 +590,9 @@ class HardwarePage(QWidget):
         self._loading_config = True
         self._set_all_signals_blocked(True)
 
-        try:                                
+        try:
             qemu_args_dict = qemu_config_obj.all_args
-            print(f"HardwarePage: Carregando UI da QemuConfig: {qemu_args_dict}")
-
-            # CPU Model (-cpu)
-            cpu_model = qemu_args_dict.get("cpu", DEFAULT_CPU)
-            if isinstance(cpu_model, dict):
-                cpu_model = cpu_model.get("type", DEFAULT_CPU)
-            passthrough_val = (cpu_model == HOST_CPU)
-
-            self.smp_passthrough_checkbox.blockSignals(True)
-            self.smp_passthrough_checkbox.setChecked(passthrough_val)
-            self.smp_passthrough_checkbox.blockSignals(False)
-
-            self.cpu_combo.blockSignals(True)
-            self.cpu_combo.setCurrentText(cpu_model if self.cpu_combo.findText(cpu_model) != -1 else DEFAULT_CPU)
-            self.cpu_combo.blockSignals(False)
-
-            # SMP (-smp)
+            # --- SMP ---
             smp_val = qemu_args_dict.get("smp")
             self.topology_checkbox.blockSignals(True)
             if isinstance(smp_val, dict):
@@ -540,79 +602,136 @@ class HardwarePage(QWidget):
                 self.smp_cores_spinbox.blockSignals(True)
                 self.smp_threads_spinbox.blockSignals(True)
 
-                self.smp_sockets_spinbox.setValue(smp_val.get('sockets', 1))
-                self.smp_cores_spinbox.setValue(smp_val.get('cores', 1))
-                self.smp_threads_spinbox.setValue(smp_val.get('threads', 1))
+                sockets = smp_val.get('sockets', 1)
+                cores = smp_val.get('cores', 1)
+                threads = smp_val.get('threads', 1)
+
+                self.smp_sockets_spinbox.setValue(sockets)
+                self.smp_cores_spinbox.setValue(cores)
+                self.smp_threads_spinbox.setValue(threads)
 
                 self.smp_sockets_spinbox.blockSignals(False)
                 self.smp_cores_spinbox.blockSignals(False)
                 self.smp_threads_spinbox.blockSignals(False)
+
+                total_vcpus = sockets * cores * threads
+                self.smp_cpu_spinbox.blockSignals(True)
+                self.smp_cpu_spinbox.setValue(total_vcpus)
+                self.smp_cpu_spinbox.setEnabled(False)
+                self.smp_cpu_spinbox.blockSignals(False)
+
+                self._on_topology_toggled()
+
             elif isinstance(smp_val, int):
                 self.topology_checkbox.setChecked(False)
-
                 self.smp_cpu_spinbox.blockSignals(True)
                 self.smp_cpu_spinbox.setValue(smp_val)
+                self.smp_cpu_spinbox.setEnabled(True)
                 self.smp_cpu_spinbox.blockSignals(False)
             else:
                 self.topology_checkbox.setChecked(False)
-
                 self.smp_cpu_spinbox.blockSignals(True)
                 self.smp_cpu_spinbox.setValue(2)
+                self.smp_cpu_spinbox.setEnabled(True)
                 self.smp_cpu_spinbox.blockSignals(False)
             self.topology_checkbox.blockSignals(False)
 
-            # CPU Mitigations
-            cpu_mitigations_val = qemu_args_dict.get("cpu-mitigations", False)
-            self.cpu_mitigations_checkbox.setChecked(
-                cpu_mitigations_val is True or str(cpu_mitigations_val).lower() == 'true'
-            )
+            # --- CPU Model + Passthrough ---
+            cpu_arg = qemu_args_dict.get("cpu", DEFAULT_CPU)
+            if isinstance(cpu_arg, dict):
+                cpu_model = cpu_arg.get("type", DEFAULT_CPU)
+            else:
+                cpu_model = cpu_arg
 
-            # Machine Type (-machine)
+            passthrough = cpu_model == HOST_CPU
+            self.smp_passthrough_checkbox.blockSignals(True)
+            self.smp_passthrough_checkbox.setChecked(passthrough)
+            self.smp_passthrough_checkbox.blockSignals(False)
+
+            self.cpu_combo.blockSignals(True)
+            if self.cpu_combo.findText(cpu_model) == -1:
+                self.cpu_combo.setCurrentText(DEFAULT_CPU)
+            else:
+                self.cpu_combo.setCurrentText(cpu_model)
+            self.cpu_combo.blockSignals(False)
+
+            # --- CPU Mitigations ---
+            mitig_val = qemu_args_dict.get("cpu-mitigations", False)
+            self.cpu_mitigations_checkbox.setChecked(str(mitig_val).lower() == "true" or mitig_val is True)
+
+            # --- Machine ---
             machine = qemu_args_dict.get("machine", DEFAULT_MACHINE_QEMU_ARG)
             if isinstance(machine, dict):
                 machine = machine.get('type', DEFAULT_MACHINE_QEMU_ARG)
             self.machine_combo.setCurrentText(machine if self.machine_combo.findText(machine) != -1 else DEFAULT_MACHINE_QEMU_ARG)
 
-            # Memory (-m)
+            # --- Memory ---
             mem = str(qemu_args_dict.get("m", DEFAULT_MEMORY_QEMU_ARG))
             self.mem_combo.setCurrentText(mem if self.mem_combo.findText(mem) != -1 else str(DEFAULT_MEMORY_QEMU_ARG))
 
-            # KVM Acceleration
+            # --- KVM ---
             self.kvm_accel_checkbox.setChecked(bool(qemu_args_dict.get("enable-kvm", False)))
 
-            # USB
+            # --- USB (BLOCO CORRIGIDO) ---
             self.usb_checkbox.setChecked(bool(qemu_args_dict.get("usb", False)))
 
-            # RTC
-            rtc_val = qemu_args_dict.get("rtc", False)
-            if isinstance(rtc_val, dict):
-                self.rtc_checkbox.setChecked(True)
-            else:
-                self.rtc_checkbox.setChecked(bool(rtc_val))
+            devices = qemu_args_dict.get("device", [])
+            if not isinstance(devices, list):
+                devices = [devices]
 
-            # Nodefaults
+            is_tablet_present = any(d.get("interface") == "usb-tablet" for d in devices if isinstance(d, dict))
+            is_mouse_present = any(d.get("interface") == "usb-mouse" for d in devices if isinstance(d, dict))
+
+            self.tablet_usb_checkbox.setChecked(is_tablet_present)
+            self.mouse_usb_checkbox.setChecked(is_mouse_present)
+
+            # --- RTC ---
+            rtc_val = qemu_args_dict.get("rtc", False)
+            self.rtc_checkbox.setChecked(isinstance(rtc_val, dict) or bool(rtc_val))
+
+            # --- Nodefaults ---
             self.nodefaults_checkbox.setChecked(bool(qemu_args_dict.get("nodefaults", False)))
 
-            # BIOS Path
-            bios_path = qemu_args_dict.get("bios", "")
-            self.bios_lineedit.setText(str(bios_path))
+            # --- BIOS ---
+            self.bios_lineedit.setText(str(qemu_args_dict.get("bios", "")))
 
-            # Boot Order (-boot)
-            boot_config = qemu_args_dict.get("boot")
+            # --- Boot Order (BLOCO CORRIGIDO) ---
+            boot_config = qemu_args_dict.get("boot", {})
             boot_order_str = ""
             if isinstance(boot_config, dict):
-                parts = []
-                if 'order' in boot_config:
-                    parts.append(boot_config['order'])
-                if 'menu' in boot_config:
-                    parts.append(f"menu={boot_config['menu']}")
-                boot_order_str = ",".join(parts)
-            elif isinstance(boot_config, str):
+                boot_order_str = boot_config.get('order', '')
+            elif isinstance(boot_config, str): # Suporte para formato antigo, se houver
                 boot_order_str = boot_config
-            self.boot_combo.setEditText(boot_order_str)
 
+            self.boot_list.clear()
+            
+            # Mapeia o caractere de boot para o texto completo na UI
+            device_map = {"c": "Hard Drive (c)", "d": "CD-ROM (d)", "n": "Network (n)"}
+            
+            # Adiciona os itens na ordem em que foram salvos
+            saved_order_chars = list(boot_order_str)
+            added_items = []
+            for char in saved_order_chars:
+                if char in device_map:
+                    full_text = device_map[char]
+                    self.boot_list.addItem(QListWidgetItem(full_text))
+                    added_items.append(full_text)
+            
+            # Adiciona quaisquer outros dispositivos que não estavam na ordem salva
+            for char, full_text in device_map.items():
+                if full_text not in added_items:
+                    self.boot_list.addItem(QListWidgetItem(full_text))
+
+            # --- Atualizações visuais finais ---
             self._update_cpu_config_and_ui()
+            self._update_warning_only()
+
+        except Exception:
+            # Estrutura de debug, caso outro erro ocorra no futuro
+            import traceback
+            traceback.print_exc()
 
         finally:
             self._loading_config = False
             self._set_all_signals_blocked(False)
+

@@ -3,7 +3,7 @@
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License v3.
 # See the LICENSE file for more details.
-
+from PyQt5.QtWidgets import ( QMessageBox )
 from PyQt5.QtCore import QObject, pyqtSignal
 import shlex
 import re
@@ -14,11 +14,13 @@ from app.utils.qemu_helper import QemuConfig, QemuArgumentParser
 class AppContext(QObject):
     qemu_config_updated = pyqtSignal(object)
     qemu_config_modified = pyqtSignal(bool)
+    storage_media_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.qemu_config = QemuConfig()
-        self.qemu_argument_parser = QemuArgumentParser()
+        self.qemu_argument_parser = QemuArgumentParser(config_provider=self.get_qemu_config_object)
+
         self._is_loading = False     
         self._blocking_signals = False
         self._last_saved_config_hash = None
@@ -28,7 +30,6 @@ class AppContext(QObject):
 
     def register_page(self, name: str, page: QObject):
         self.pages[name] = page
-        print(f"[AppContext] Página registrada: {name}")
 
     def get_page(self, name: str):
         return self.pages.get(name)   
@@ -65,7 +66,6 @@ class AppContext(QObject):
         cleaned = re.sub(r"[\r\n]+", " ", cleaned)
         try: return shlex.split(cleaned.strip())
         except Exception as e:
-            print(f"[split_shell_command] erro ao fazer split: {e}")
             return []
 
     def format_shell_command(self, args: list[str]) -> list[str]:
@@ -109,7 +109,6 @@ class AppContext(QObject):
             self.qemu_config_modified.emit(True)
 
     def load_qemu_config(self, file_path: str):
-        print(f"AppContext: Carregando configuração do arquivo: {file_path}")
         try:
             with open(file_path, 'r') as f:
                 config_data = json.load(f)
@@ -119,9 +118,8 @@ class AppContext(QObject):
 
             self.mark_saved()
             self.qemu_config_updated.emit(self.qemu_config)
-            print("AppContext: Configuração carregada do arquivo e qemu_config_updated emitida.")
         except Exception as e:
-            print(f"AppContext: Erro ao carregar configuração: {e}")
+            pass
             # Você pode querer emitir um sinal de erro aqui ou lidar com ele de outra forma.
 
     def get_qemu_config_object(self) -> 'QemuConfig':
@@ -130,12 +128,44 @@ class AppContext(QObject):
     
     def save_qemu_config(self, file_path: str):
         """Salva a configuração QEMU atual em um arquivo JSON."""
-        print(f"AppContext: Salvando configuração para o arquivo: {file_path}")
+        is_safe_to_save = True
+        try:
+            for key, value in self.qemu_config.all_args.items():
+                # Vamos verificar o tipo de cada valor no dicionário.
+                # Tipos seguros são: dict, list, str, int, float, bool, None
+                if not isinstance(value, (dict, list, str, int, float, bool, type(None))):
+                    is_safe_to_save = False
+        except Exception as e:
+            is_safe_to_save = False
+
+        if not is_safe_to_save:
+            # Usaremos um widget do PyQt para a mensagem de erro.
+            # Se o AppContext não puder criar widgets, substitua por um print().
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setText("Erro de Salvamento")
+            msg_box.setInformativeText("A configuração contém dados inválidos e não pode ser salva. Verifique o console do terminal para detalhes técnicos.")
+            msg_box.setWindowTitle("Erro")
+            msg_box.exec_()
+            return # Impede a chamada do json.dump e o crash
+        else:
+            pass
+
         try:
             with open(file_path, 'w') as f:
-                json.dump(self.qemu_config.all_args, f, indent=4)
-            self.mark_saved() # <--- Adicione ou verifique esta linha
-            print("AppContext: Configuração salva com sucesso.")
+                json.dump(self.qemu_config.all_args, f, indent=4)           
+            self.mark_saved()           
         except Exception as e:
-            print(f"AppContext: Erro ao salvar configuração: {e}")
-            raise # Re-lança a exceção para que a MainWindow possa lidar com ela (ex: QMessageBox)  
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def parse_cli_and_notify(self, cmd_line_str: str):
+        """
+        Executa o parser de linha de comando e notifica todas as páginas
+        sobre a atualização da configuração.
+        """
+        self.qemu_argument_parser.parse_qemu_command_line_to_config(cmd_line_str)        
+        self.qemu_config_updated.emit(self.qemu_config)
+        self.mark_saved()
+        
