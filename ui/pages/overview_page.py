@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from app.utils.debug_log import debug_log
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QGroupBox, QFormLayout,
     QComboBox, QLineEdit, QPushButton, QHBoxLayout, QTextEdit, 
@@ -18,7 +20,8 @@ import os
 import shutil
 from typing import Optional, TYPE_CHECKING
 
-
+if TYPE_CHECKING:
+    from app.context.app_context import AppContext
 class OverviewPage(QWidget):
     overview_config_changed = pyqtSignal()
     qemu_binary_changed = pyqtSignal(str)
@@ -40,6 +43,7 @@ class OverviewPage(QWidget):
         self._parse_timer.setInterval(500)
         self.setup_ui()
         self.populate_qemu_binaries()
+        self.load_config_to_ui()
         self.bind_signals()
         self.refresh_display_from_qemu_config()
 
@@ -115,15 +119,26 @@ class OverviewPage(QWidget):
         self.app_context.qemu_config_updated.connect(self.refresh_display_from_qemu_config)
 
     def populate_qemu_binaries(self):
-        self.qemu_config._cache.clear()  # Clean last cache for reload
+
+        debug_log("Iniciando populate_qemu_binaries")
+        self.qemu_config._cache.clear()
+        debug_log("Cache interno limpo")
+
+        found = 0
         for path in os.environ.get("PATH", "").split(os.pathsep):
             if os.path.isdir(path):
                 for f in os.listdir(path):
                     if f.startswith("qemu-system-"):
                         full_path = shutil.which(f)
                         if full_path:
-                            qemu_path = full_path
-                            self.qemu_config._get_helper(qemu_path)  # Instances and cache the path
+                            debug_log(f"Encontrado candidato: {full_path}")
+                            try:
+                                self.qemu_config._get_helper(full_path, self.app_context)
+                                found += 1
+                            except Exception as e:
+                                debug_log(f"Erro ao processar {full_path}: {e}")
+
+        debug_log(f"{found} binários QEMU adicionados ao cache")
         
         all_binaries = list(self.qemu_config._cache.keys())
         self.qemu_combo.blockSignals(True)
@@ -131,10 +146,8 @@ class OverviewPage(QWidget):
         self.qemu_combo.addItems([os.path.basename(p) for p in all_binaries])
         self.qemu_combo.blockSignals(False)
 
-        if not self.app_context.qemu_config.get_config_value("qemu_executable") and self.qemu_combo.count() > 0:
-            self.qemu_combo.setCurrentIndex(0)
-            self.on_qemu_combo_changed(0)
-        
+        debug_log(f"{len(all_binaries)} itens adicionados ao combo")
+
     def load_config_to_ui(self):        
         cfg = self.app_context.qemu_config
         if not cfg:
@@ -145,7 +158,7 @@ class OverviewPage(QWidget):
         self.custom_path.blockSignals(True)
 
         try:
-            custom_exec = cfg.get("custom_executable", "")
+            custom_exec = cfg.get("custom_executable", "").strip()
             self.custom_path.setText(custom_exec)
 
             if custom_exec:
@@ -153,64 +166,101 @@ class OverviewPage(QWidget):
                 self._update_active_binary(custom_exec)
             else:
                 self.qemu_combo.setEnabled(True)
-                qemu_exec_basename = cfg.get("qemu_executable", "").strip()
-                items = [self.qemu_combo.itemText(i) for i in range(self.qemu_combo.count())]
-                if qemu_exec_basename and qemu_exec_basename in items:
-                    self.qemu_combo.setCurrentText(qemu_exec_basename)
-                    # Call on_qemu_combo_changed and guarantee that the current index is valid
-                    self.on_qemu_combo_changed(self.qemu_combo.currentIndex())
+                
+                # --- INÍCIO DO BLOCO DE INSPEÇÃO ---
+                debug_log("\n==========================================================")
+                debug_log("--- INICIANDO INSPEÇÃO MICROSCÓPICA ---")
+                
+                # 1. Inspeciona o valor vindo do JSON
+                json_full_path = cfg.get("qemu_executable", "").strip()
+                json_basename = os.path.basename(json_full_path)
+                debug_log(f"JSON_VAL: '{json_basename}' | TIPO: {type(json_basename)} | LEN: {len(json_basename)}")
+
+                # 2. Inspeciona cada item do ComboBox e compara
+                combo_items = [self.qemu_combo.itemText(i) for i in range(self.qemu_combo.count())]
+                found_index = -1
+
+                debug_log("--- COMPARANDO ITEM A ITEM ---")
+                for i, item_from_combo in enumerate(combo_items):
+                    # Normaliza ambos os lados
+                    json_val_norm = json_basename.lower().strip()
+                    combo_val_norm = item_from_combo.lower().strip()
+                    
+                    match = "SIM" if json_val_norm == combo_val_norm else "NAO"
+                    
+                    debug_log(f"  Índice {i}: Comparando JSON '{json_val_norm}' (LEN:{len(json_val_norm)}) com COMBO '{combo_val_norm}' (LEN:{len(combo_val_norm)}) -> BATE? {match}")
+                    
+                    if match == "SIM":
+                        found_index = i
+                
+                debug_log(f"--- FIM DA INSPEÇÃO. Índice encontrado: {found_index} ---")
+                debug_log("==========================================================\n")
+                # --- FIM DO BLOCO DE INSPEÇÃO ---
+
+
+                # A lógica original continua, usando o índice encontrado
+                if found_index != -1:
+                    self.qemu_combo.setCurrentIndex(found_index)
                 elif self.qemu_combo.count() > 0:
                     self.qemu_combo.setCurrentIndex(0)
-                    self.on_qemu_combo_changed(0) # Select the first item
-                 
-                if self.qemu_combo.currentIndex() >= 0:
-                    selected_basename = self.qemu_combo.itemText(self.qemu_combo.currentIndex())
-                    # Find complete path of Binary selected
-                    binary_path = next((p for p in self.qemu_config._cache.keys() 
-                                        if os.path.basename(p) == selected_basename), None)
-                    self._update_active_binary(binary_path)
-                else: # No have items in binary combo
-                    self._update_active_binary(None)
-                self.refresh_display_from_qemu_config()
+                
+                # O get a seguir pode falhar se o índice for -1 após uma falha de busca, mas o setCurrentIndex(0) deve prevenir isso
+                current_idx = self.qemu_combo.currentIndex()
+                if current_idx != -1:
+                    self.on_qemu_combo_changed(current_idx)
+
+            self.refresh_display_from_qemu_config()
+
         finally:
             self._internal_text_change = False
             self.qemu_combo.blockSignals(False)
             self.custom_path.blockSignals(False)
 
     def _update_active_binary(self, binary_path: Optional[str]):
+            from PyQt5.QtWidgets import QMessageBox
 
-        with self.app_context.signal_blocker():
-            custom_path_text = self.custom_path.text().strip()
+            # Bloqueia sinais para evitar loops, como você já faz
+            with self.app_context.signal_blocker():
+                custom_path_text = self.custom_path.text().strip()
+                
+                # Prepara o dicionário de dados a serem salvos
+                data_to_update = {
+                    "qemu_executable": binary_path or "",
+                    "custom_executable": custom_path_text
+                }
 
-            data_to_update = {
-                "qemu_executable": binary_path if binary_path else "",
-                "custom_executable": custom_path_text
-            }
+                if not binary_path or not os.path.exists(binary_path):
+                    self.arch_label.setText("Architecture: No QEMU binary selected")
+                    # Salva um valor padrão ou vazio para a arquitetura
+                    data_to_update["architecture"] = ""
+                else:
+                    try:
+                        helper = self.app_context.get_helper(binary_path)
+                        if not helper:
+                            raise FileNotFoundError(f"QEMU helper não pôde ser instanciado para: {binary_path}")
 
-            if not binary_path:
-                self.arch_label.setText("Architecture: No QEMU binary selected")
-                data_to_update["architecture"] = self.arch_label.text()
-            else:
-                try:
-                    arch_text = self.qemu_config.get_arch_for_binary(binary_path)
-                    self.arch_label.setText(f"Architecture: {arch_text}")
-                    data_to_update["architecture"] = self.arch_label.text()
-                except FileNotFoundError as e:
-                    QMessageBox.critical(self, "Error", str(e))
-                    self.arch_label.setText("Architecture: Invalid QEMU binary")
-                    data_to_update["architecture"] = self.arch_label.text()
-                    return
-                except Exception as e:
-                    QMessageBox.critical(self, "Unexpected error", f"Unexpected error loading binary: {e}")
-                    self.arch_label.setText("Architecture: Unexpected error")
-                    data_to_update["architecture"] = self.arch_label.text()
-                    return
+                        # Pega o dado bruto (ex: "hppa")
+                        arch_text = helper.get_info("architecture") or "Unknown"
+                        
+                        # Atualiza a UI (Visão)
+                        self.arch_label.setText(f"Architecture: {arch_text}")
+                        
+                        # --- A CORREÇÃO ---
+                        # Salva apenas o dado bruto (Modelo)
+                        data_to_update["architecture"] = arch_text
 
-            self.qemu_config.update_qemu_config_from_page(data_to_update)
-            self.qemu_binary_changed.emit(binary_path if binary_path else "")
-            self.overview_config_changed.emit()
-            if hasattr(self, "hardware_page") and self.hardware_page:
-                self.hardware_page.update_qemu_helper()
+                    except Exception as e:
+                        # Trata os erros como antes
+                        # ...
+                        return
+
+                # Atualiza o QemuConfig com os dados puros e notifica o restante da app
+                self.qemu_config.update_qemu_config_from_page(data_to_update)
+                self.qemu_binary_changed.emit(binary_path or "")
+                self.overview_config_changed.emit()
+
+                if hasattr(self, "hardware_page") and self.hardware_page:
+                    self.hardware_page.update_qemu_helper()
 
     def on_qemu_combo_changed(self, index):
         # Block signals of qemu_combo to avoid recurion or more than one signal emission
