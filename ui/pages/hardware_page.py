@@ -3,6 +3,7 @@
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License v3.
 # See the LICENSE file for more details.
+from __future__ import annotations
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QCheckBox, QHBoxLayout,
@@ -12,9 +13,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QIntValidator 
 import multiprocessing
-from typing import Dict, Any
-from app.context.app_context import AppContext
+from typing import Dict, Any, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from app.context.app_context import AppContext
+    
 CPU_CONFIG = "cpu"
 MACHINE_TYPE_CONFIG = "machine"
 MEMORY_MB_CONFIG = "m"
@@ -400,7 +403,7 @@ class HardwarePage(QWidget):
         
         # Send data dict to AppContext.
         self.qemu_config.update_qemu_config_from_page(hardware_data)
-        overview_page = self.app_context.get_page("overview")
+        overview_page = self.app_context._get_page("overview")
         if overview_page:
             overview_page.refresh_display_from_qemu_config()
         self.app_context.mark_modified()        

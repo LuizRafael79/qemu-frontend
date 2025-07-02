@@ -4,6 +4,8 @@
 # it under the terms of the GNU General Public License v3.
 # See the LICENSE file for more details.
 
+from __future__ import annotations
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QGroupBox, QFormLayout,
     QComboBox, QLineEdit, QPushButton, QHBoxLayout, QTextEdit, 
@@ -13,12 +15,9 @@ from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from PyQt5.QtCore import pyqtSignal, QTimer
 import os
-import subprocess
 import shutil
-import shlex
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from app.context.app_context import AppContext
 
 class OverviewPage(QWidget):
     overview_config_changed = pyqtSignal()
@@ -29,8 +28,8 @@ class OverviewPage(QWidget):
         self.app_context = app_context
         self.qemu_config = self.app_context.qemu_config
         self.qemu_argument_parser = self.app_context.qemu_argument_parser
-        self.hardware_page = self.app_context.get_page("hardware")
-        self.storage_page = self.app_context.get_page("storage")
+        self.hardware_page = self.app_context._get_page("hardware")
+        self.storage_page = self.app_context._get_page("storage")
 
         self.tab_widget = QTabWidget()
 
@@ -366,8 +365,8 @@ class OverviewPage(QWidget):
             self.app_context.qemu_config_updated.emit(self.app_context.get_qemu_config_object())
 
     def resolve_dependencies(self):
-        self.hardware_page = self.app_context.get_page("hardware")
-        self.storage_page = self.app_context.get_page("storage")
+        self.hardware_page = self.app_context._get_page("hardware")
+        self.storage_page = self.app_context._get_page("storage")
 
     def append_colored_text(self, text, color):
         fmt = QTextCharFormat()

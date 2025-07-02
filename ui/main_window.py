@@ -15,6 +15,9 @@ from ui.widgets.sidebar_button import SidebarButton
 from ui.pages.overview_page import OverviewPage
 from ui.pages.hardware_page import HardwarePage
 from ui.pages.storage_page import StoragePage
+from ui.pages.network_page import NetworkPage
+#from ui.pages.display_page import DisplayPage
+#from ui.pages.advanced_page import AdvancedPage
 from ui.styles.themes import get_dark_stylesheet, get_light_stylesheet
 
 import os
@@ -59,11 +62,17 @@ class MainWindow(QWidget):
 
         # AppContext pages instance
         self.overview_page = OverviewPage(self.app_context)
-        self.app_context.register_page("overview", self.overview_page)
+        self.app_context._register_page("overview", self.overview_page)
         self.hardware_page = HardwarePage(self.app_context)
-        self.app_context.register_page("hardware", self.hardware_page)
+        self.app_context._register_page("hardware", self.hardware_page)
         self.storage_page = StoragePage(self.app_context)
-        self.app_context.register_page("storage", self.storage_page)               
+        self.app_context._register_page("storage", self.storage_page)
+        self.network_page = NetworkPage(self.app_context)
+        self.app_context._register_page("network", self.network_page)
+        #self.display_page = DisplayPage(self.app_context)
+        #self.app_context.register_page("display", self.display_page)
+        #self.advanced_page = AdvancedPage(self.app_context)
+        #self.app_context.register_page("advanced", self.advanced_page)
 
         self.overview_page.resolve_dependencies()
 
@@ -101,7 +110,7 @@ class MainWindow(QWidget):
             ("Overview", "fa5s.home", self.overview_page),
             ("Hardware", "fa5s.microchip", self.hardware_page),
             ("Storage", "fa5s.hdd", self.storage_page),
-            ("Network", "fa5s.network-wired", None), # Placeholders Pages
+            ("Network", "fa5s.network-wired", self.network_page), # Placeholders Pages
             ("Display", "fa5s.desktop", None),
             ("Sound", "fa5s.volume-up", None),
             ("Advanced", "fa5s.cogs", None),
@@ -189,8 +198,8 @@ class MainWindow(QWidget):
         
         # Notify the current page
         page = self.pages.currentWidget()
-        if page and hasattr(page, "on_page_changed"):
-            page.on_page_changed()
+        if page and hasattr(page, "on_page_changed"): # type: ignore[attr-defined]
+            page.on_page_changed() # type: ignore[attr-defined]
 
     def apply_theme(self):
         theme = self._vm_state.get('theme', 'dark')
