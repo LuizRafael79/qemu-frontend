@@ -403,7 +403,7 @@ class HardwarePage(QWidget):
         
         # Send data dict to AppContext.
         self.qemu_config.update_qemu_config_from_page(hardware_data)
-        overview_page = self.app_context._get_page("overview")
+        overview_page = self.app_context.get_page("overview")
         if overview_page:
             overview_page.refresh_display_from_qemu_config()
         self.app_context.mark_modified()        

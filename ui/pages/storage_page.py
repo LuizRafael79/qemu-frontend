@@ -3,27 +3,21 @@
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License v3.
 # See the LICENSE file for more details.
-from __future__ import annotations
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QLineEdit, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
-<<<<<<< HEAD
-
-=======
 from app.utils.qemu_config import QemuConfig
 from app.context.app_context import AppContext
->>>>>>> 8c786f6
 import os, traceback
-from typing import Any, List, Dict, TYPE_CHECKING
+from typing import Any, List, Dict
 from contextlib import contextmanager
 
-if TYPE_CHECKING:
-    from app.context.app_context import AppContext
 
 # --- Início das Classes de Widget (DriveWidget, FloppyWidget) ---
+
 class DriveWidget(QWidget):
     drive_changed = pyqtSignal()
     device_changed = pyqtSignal()
@@ -231,6 +225,8 @@ class FloppyWidget(QWidget):
         self.path_edit.blockSignals(False)
 
 # --- Fim das Classes de Widget ---
+
+
 class StoragePage(QWidget):
     storage_config_changed = pyqtSignal()  # Sinal para notificar sobre mudanças na StoragePage
 
@@ -294,9 +290,9 @@ class StoragePage(QWidget):
             self.qemu_config.update_qemu_config_from_page(config_update)
             self.app_context.mark_modified()
 
-            overview_page = self.app_context._get_page("overview")
-            if overview_page and hasattr(overview_page, "refresh_display_from_qemu_config"):
-                overview_page.refresh_display_from_qemu_config() # type: ignore[attr-defined]
+            overview_page = self.app_context.get_page("overview")
+            if overview_page:
+                overview_page.refresh_display_from_qemu_config()
 
         except Exception as e:
             # Adicionado para ajudar a depurar qualquer erro inesperado durante a atualização.

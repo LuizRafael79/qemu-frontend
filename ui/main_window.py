@@ -62,13 +62,13 @@ class MainWindow(QWidget):
 
         # AppContext pages instance
         self.overview_page = OverviewPage(self.app_context)
-        self.app_context._register_page("overview", self.overview_page)
+        self.app_context.register_page("overview", self.overview_page)
         self.hardware_page = HardwarePage(self.app_context)
-        self.app_context._register_page("hardware", self.hardware_page)
+        self.app_context.register_page("hardware", self.hardware_page)
         self.storage_page = StoragePage(self.app_context)
-        self.app_context._register_page("storage", self.storage_page)
+        self.app_context.register_page("storage", self.storage_page)
         self.network_page = NetworkPage(self.app_context)
-        self.app_context._register_page("network", self.network_page)
+        self.app_context.register_page("network", self.network_page)
         #self.display_page = DisplayPage(self.app_context)
         #self.app_context.register_page("display", self.display_page)
         #self.advanced_page = AdvancedPage(self.app_context)
@@ -198,13 +198,8 @@ class MainWindow(QWidget):
         
         # Notify the current page
         page = self.pages.currentWidget()
-<<<<<<< HEAD
         if page and hasattr(page, "on_page_changed"): # type: ignore[attr-defined]
             page.on_page_changed() # type: ignore[attr-defined]
-=======
-        if page and hasattr(page, "on_page_changed"):
-            page.on_page_changed() # type: ignore
->>>>>>> 8c786f6
 
     def apply_theme(self):
         theme = self._vm_state.get('theme', 'dark')
