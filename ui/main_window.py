@@ -190,7 +190,7 @@ class MainWindow(QWidget):
         # Notify the current page
         page = self.pages.currentWidget()
         if page and hasattr(page, "on_page_changed"):
-            page.on_page_changed()
+            page.on_page_changed() # type: ignore
 
     def apply_theme(self):
         theme = self._vm_state.get('theme', 'dark')

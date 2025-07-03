@@ -13,12 +13,11 @@ from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from PyQt5.QtCore import pyqtSignal, QTimer
 import os
-import subprocess
 import shutil
-import shlex
 from typing import Optional
 
 from app.context.app_context import AppContext
+from app.debug.debug_log import debug_log
 
 class OverviewPage(QWidget):
     overview_config_changed = pyqtSignal()
@@ -36,12 +35,15 @@ class OverviewPage(QWidget):
 
         self._internal_text_change = False
         self.app_context.qemu_config_updated.connect(self.refresh_display_from_qemu_config)
+
         self._parse_timer = QTimer(self) 
         self._parse_timer.setSingleShot(True)
         self._parse_timer.setInterval(500)
         self.setup_ui()
         self.populate_qemu_binaries()
         self.bind_signals()
+        self.load_config_to_ui()
+
         self.refresh_display_from_qemu_config()
 
     def setup_ui(self):
@@ -116,7 +118,7 @@ class OverviewPage(QWidget):
         self.app_context.qemu_config_updated.connect(self.refresh_display_from_qemu_config)
 
     def populate_qemu_binaries(self):
-        self.qemu_config._cache.clear()  # Clean last cache for reload
+        self.app_context.qemu_config._cache.clear()  # Clean last cache for reload
         for path in os.environ.get("PATH", "").split(os.pathsep):
             if os.path.isdir(path):
                 for f in os.listdir(path):
@@ -124,9 +126,9 @@ class OverviewPage(QWidget):
                         full_path = shutil.which(f)
                         if full_path:
                             qemu_path = full_path
-                            self.qemu_config._get_helper(qemu_path)  # Instances and cache the path
+                            self.app_context.qemu_config._get_helper(qemu_path)  # Instances and cache the path
         
-        all_binaries = list(self.qemu_config._cache.keys())
+        all_binaries = list(self.app_context.qemu_config._cache.keys())
         self.qemu_combo.blockSignals(True)
         self.qemu_combo.clear()
         self.qemu_combo.addItems([os.path.basename(p) for p in all_binaries])
@@ -136,7 +138,8 @@ class OverviewPage(QWidget):
             self.qemu_combo.setCurrentIndex(0)
             self.on_qemu_combo_changed(0)
         
-    def load_config_to_ui(self):        
+    def load_config_to_ui(self):
+        debug_log("Get qemu executable: {}".format(self.app_context.qemu_config.get_config_value("qemu_executable")))
         cfg = self.app_context.qemu_config
         if not cfg:
             return
@@ -154,7 +157,7 @@ class OverviewPage(QWidget):
                 self._update_active_binary(custom_exec)
             else:
                 self.qemu_combo.setEnabled(True)
-                qemu_exec_basename = cfg.get("qemu_executable", "").strip()
+                qemu_exec_basename = os.path.basename(cfg.get("qemu_executable", "").strip())
                 items = [self.qemu_combo.itemText(i) for i in range(self.qemu_combo.count())]
                 if qemu_exec_basename and qemu_exec_basename in items:
                     self.qemu_combo.setCurrentText(qemu_exec_basename)
@@ -167,7 +170,7 @@ class OverviewPage(QWidget):
                 if self.qemu_combo.currentIndex() >= 0:
                     selected_basename = self.qemu_combo.itemText(self.qemu_combo.currentIndex())
                     # Find complete path of Binary selected
-                    binary_path = next((p for p in self.qemu_config._cache.keys() 
+                    binary_path = next((p for p in self.app_context.qemu_config._cache.keys() 
                                         if os.path.basename(p) == selected_basename), None)
                     self._update_active_binary(binary_path)
                 else: # No have items in binary combo
@@ -181,8 +184,7 @@ class OverviewPage(QWidget):
     def _update_active_binary(self, binary_path: Optional[str]):
 
         with self.app_context.signal_blocker():
-            custom_path_text = self.custom_path.text().strip()
-
+            custom_path_text = self.custom_path.text().strip()            
             data_to_update = {
                 "qemu_executable": binary_path if binary_path else "",
                 "custom_executable": custom_path_text
@@ -190,21 +192,21 @@ class OverviewPage(QWidget):
 
             if not binary_path:
                 self.arch_label.setText("Architecture: No QEMU binary selected")
-                data_to_update["architecture"] = self.arch_label.text()
+                data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
             else:
                 try:
                     arch_text = self.qemu_config.get_arch_for_binary(binary_path)
                     self.arch_label.setText(f"Architecture: {arch_text}")
-                    data_to_update["architecture"] = self.arch_label.text()
+                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
                 except FileNotFoundError as e:
                     QMessageBox.critical(self, "Error", str(e))
                     self.arch_label.setText("Architecture: Invalid QEMU binary")
-                    data_to_update["architecture"] = self.arch_label.text()
+                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
                     return
                 except Exception as e:
                     QMessageBox.critical(self, "Unexpected error", f"Unexpected error loading binary: {e}")
                     self.arch_label.setText("Architecture: Unexpected error")
-                    data_to_update["architecture"] = self.arch_label.text()
+                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
                     return
 
             self.qemu_config.update_qemu_config_from_page(data_to_update)
@@ -221,7 +223,7 @@ class OverviewPage(QWidget):
         full_binary_path = None
         
         # Find the full path of Qemu Binary in cache (~/.cache/qemu_binaries/)
-        for path_key in self.qemu_config._cache.keys():
+        for path_key in self.app_context.qemu_config._cache.keys():
             if os.path.basename(path_key) == selected_basename:
                 full_binary_path = path_key
                 break

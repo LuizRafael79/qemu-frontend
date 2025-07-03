@@ -8,8 +8,12 @@ from PyQt5.QtCore import QObject, pyqtSignal
 import shlex
 import re
 import json
+from typing import Optional
 from contextlib import contextmanager
-from app.utils.qemu_helper import QemuConfig, QemuArgumentParser
+from app.utils.qemu_config import QemuConfig
+from app.utils.qemu_helper import QemuHelper
+from app.utils.qemu_argument_parser import QemuArgumentParser
+from app.debug.debug_log import debug_log
 
 class AppContext(QObject):
     qemu_config_updated = pyqtSignal(object)
@@ -18,15 +22,31 @@ class AppContext(QObject):
 
     def __init__(self):
         super().__init__()
-        self.qemu_config = QemuConfig()
-        self.qemu_argument_parser = QemuArgumentParser(config_provider=self.get_qemu_config_object)
+        self.qemu_config = QemuConfig(app_context=self)
+        self._qemu_helper = None
+        self.qemu_argument_parser = QemuArgumentParser(app_context=self)
 
         self._is_loading = False     
         self._blocking_signals = False
         self._last_saved_config_hash = None
         self._is_modified = False
         self._is_hash_modified = False 
-        self.pages = {}           
+        self.pages = {}
+            
+    def qemu_helper(self) -> Optional[QemuHelper]:
+        if not self._qemu_helper:
+            qemu_path = self.qemu_config.all_args.get("qemu_executable", "")
+            if qemu_path:
+                self._qemu_helper = QemuHelper(qemu_path, app_context=self)
+        return self._qemu_helper
+
+    def refresh_qemu_helper(self):
+        """Recria helper com novo path, se válido"""
+        qemu_path = self.qemu_config.all_args.get("qemu_executable", "")
+        if qemu_path:
+            self._qemu_helper = QemuHelper(qemu_path, app_context=self)
+        else:
+            self._qemu_helper = None           
 
     def register_page(self, name: str, page: QObject):
         self.pages[name] = page
@@ -167,5 +187,4 @@ class AppContext(QObject):
         """
         self.qemu_argument_parser.parse_qemu_command_line_to_config(cmd_line_str)        
         self.qemu_config_updated.emit(self.qemu_config)
-        self.mark_saved()
-        
+        self.mark_saved()   
