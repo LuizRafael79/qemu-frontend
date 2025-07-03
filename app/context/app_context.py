@@ -12,6 +12,15 @@ from typing import Optional
 import shlex
 import re
 import json
+<<<<<<< HEAD
+=======
+from typing import Optional
+from contextlib import contextmanager
+from app.utils.qemu_config import QemuConfig
+from app.utils.qemu_helper import QemuHelper
+from app.utils.qemu_argument_parser import QemuArgumentParser
+from app.debug.debug_log import debug_log
+>>>>>>> 8c786f6
 
 from contextlib import contextmanager
 from app.utils.qemu_config import QemuConfig
@@ -25,6 +34,7 @@ class AppContext(QObject):
     def __init__(self, qemu_path=None):
         self._qemu_helper_cache: dict[str, QemuHelper] = {}
         super().__init__()
+<<<<<<< HEAD
 
         self.qemu_config = QemuConfig()
         self.qemu_config.set_app_context(self)
@@ -37,6 +47,11 @@ class AppContext(QObject):
 
         if qemu_path:
             self.qemu_helper = self.get_helper(qemu_path)
+=======
+        self.qemu_config = QemuConfig(app_context=self)
+        self._qemu_helper = None
+        self.qemu_argument_parser = QemuArgumentParser(app_context=self)
+>>>>>>> 8c786f6
 
         self._is_loading = False     
         self._blocking_signals = False
@@ -44,7 +59,25 @@ class AppContext(QObject):
         self._is_modified = False
         self._is_hash_modified = False 
         self.pages = {}
+<<<<<<< HEAD
         self.helpers = {}
+=======
+            
+    def qemu_helper(self) -> Optional[QemuHelper]:
+        if not self._qemu_helper:
+            qemu_path = self.qemu_config.all_args.get("qemu_executable", "")
+            if qemu_path:
+                self._qemu_helper = QemuHelper(qemu_path, app_context=self)
+        return self._qemu_helper
+
+    def refresh_qemu_helper(self):
+        """Recria helper com novo path, se válido"""
+        qemu_path = self.qemu_config.all_args.get("qemu_executable", "")
+        if qemu_path:
+            self._qemu_helper = QemuHelper(qemu_path, app_context=self)
+        else:
+            self._qemu_helper = None           
+>>>>>>> 8c786f6
 
         self.qemu_config = QemuConfig()
         self.qemu_config.set_app_context(self)
@@ -196,4 +229,8 @@ class AppContext(QObject):
     def parse_cli_and_notify(self, cmd_line_str: str):
         self.qemu_argument_parser.parse_qemu_command_line_to_config(cmd_line_str)
         self.qemu_config_updated.emit(self.qemu_config)
+<<<<<<< HEAD
         self.mark_saved()
+=======
+        self.mark_saved()   
+>>>>>>> 8c786f6

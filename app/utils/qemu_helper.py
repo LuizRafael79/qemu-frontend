@@ -10,10 +10,25 @@ import json
 import hashlib
 import subprocess
 import re
+<<<<<<< HEAD
 from typing import Any, Dict
+=======
+
+from typing import Any, Dict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.context.app_context import AppContext
+>>>>>>> 8c786f6
 
 class QemuHelper:
+    _cache = {}
     data: Dict[str, Any]
+<<<<<<< HEAD
+=======
+    def __init__(self, qemu_path, app_context: "AppContext"):
+        self.qemu_path = qemu_path
+        self.app_context = app_context
+>>>>>>> 8c786f6
 
     def __init__(self, qemu_path):
         if not self._is_valid_qemu_binary(qemu_path):
@@ -31,6 +46,12 @@ class QemuHelper:
 
     def set_app_context(self, context):
         self._context = context
+
+    @classmethod
+    def get_helper(cls, qemu_path: str, app_context):
+        if qemu_path not in cls._cache:
+            cls._cache[qemu_path] = cls(qemu_path, app_context)
+        return cls._cache[qemu_path]
 
     @staticmethod
     def _is_valid_qemu_binary(path: str) -> bool:
@@ -140,6 +161,7 @@ class QemuHelper:
                 parts = line.split()
                 if parts and parts[0] not in machines:
                     machines.append(parts[0])
+<<<<<<< HEAD
         return machines if machines else ["pc", "q35", "isapc"]
 
     def get_network_netdev(self):
@@ -185,3 +207,6 @@ class QemuHelper:
             return self._context.qemu_argument_parser
         else:
             raise RuntimeError("AppContext não configurado em QemuHelper")
+=======
+        return machines if machines else ["pc", "q35", "isapc"]       
+>>>>>>> 8c786f6

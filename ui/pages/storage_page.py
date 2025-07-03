@@ -10,7 +10,12 @@ from PyQt5.QtWidgets import (
     QFileDialog, QLineEdit, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
+<<<<<<< HEAD
 
+=======
+from app.utils.qemu_config import QemuConfig
+from app.context.app_context import AppContext
+>>>>>>> 8c786f6
 import os, traceback
 from typing import Any, List, Dict, TYPE_CHECKING
 from contextlib import contextmanager

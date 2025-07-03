@@ -1,0 +1,158 @@
+{
+    "m": "1024",
+    "cpu": "host",
+    "machine": {
+        "type": "pc"
+    },
+    "smp": 2,
+    "enable-kvm": false,
+    "usb": true,
+    "usb-tablet": false,
+    "usb-mouse": false,
+    "rtc": {
+        "base": "localtime",
+        "clock": "host"
+    },
+    "nodefaults": true,
+    "bios": "bios/bios.bin",
+    "boot": {
+        "order": "dcn"
+    },
+    "device": [
+        {
+            "interface": "VGA",
+            "vgamem_mb": "128"
+        },
+        {
+            "interface": "lsi"
+        },
+        {
+            "interface": "ac97",
+            "audiodev": "sdl"
+        },
+        {
+            "interface": "scsi-hd",
+            "drive": "disk1"
+        },
+        {
+            "interface": "scsi-hd",
+            "drive": "disk2"
+        },
+        {
+            "interface": "ide-cd",
+            "drive": "disk3"
+        },
+        {
+            "interface": "scsi-cd",
+            "drive": "disk4"
+        },
+        {
+            "interface": "scsi-cd",
+            "drive": "disk5"
+        },
+        {
+            "interface": "scsi-cd",
+            "drive": "disk6"
+        },
+        {
+            "interface": "scsi-cd",
+            "drive": "disk7"
+        },
+        {
+            "interface": "scsi-cd",
+            "drive": "disk8"
+        },
+        {
+            "interface": "pcnet",
+            "rombar": "0",
+            "netdev": "net0"
+        },
+        {
+            "interface": "usb-tablet"
+        },
+        {
+            "interface": "usb-mouse"
+        }
+    ],
+    "drive": [
+        {
+            "file": "floppy/disks/abd/fd.ima",
+            "if": "floppy",
+            "format": "raw",
+            "unit": "0"
+        },
+        {
+            "file": "floppy/disks/abd4/fd4.ima",
+            "if": "floppy",
+            "format": "raw",
+            "unit": "1"
+        },
+        {
+            "file": "hdd/win98.qcow2",
+            "id": "disk1",
+            "if": "none",
+            "format": "qcow2"
+        },
+        {
+            "file": "extras/disk.img",
+            "id": "disk2",
+            "if": "none",
+            "format": "raw"
+        },
+        {
+            "file": "cdrom/win98qi_v0.9.6_ALL.iso",
+            "id": "disk3",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        },
+        {
+            "file": "cdrom/softgpu-0.6.2024.40.iso",
+            "id": "disk4",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        },
+        {
+            "file": "cdrom/wrappers.iso",
+            "id": "disk5",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        },
+        {
+            "file": "cdrom/mesa9x-24.1.5.114-driver-win98.iso",
+            "id": "disk6",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        },
+        {
+            "file": "cdrom/Security9_enu_15.iso",
+            "id": "disk7",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        },
+        {
+            "file": "cdrom/vmaddons.iso",
+            "id": "disk8",
+            "if": "none",
+            "format": "raw",
+            "media": "cdrom"
+        }
+    ],
+    "floppy": [],
+    "qemu_executable": "/home/luiz/winxp/qemu-3dfx/bin/qemu-system-i386",
+    "custom_executable": "/home/luiz/winxp/qemu-3dfx/bin/qemu-system-i386",
+    "architecture": "Architecture: Official Qemu 3dfx - GIT HEAD -> @789cd90-",
+    "netdev": [
+        {
+            "user": "True",
+            "id": "net0",
+            "net": "192.168.100.0/24",
+            "dhcpstart": "192.168.100.9"
+        }
+    ],
+    "cpu-mitigations": "off"
+}

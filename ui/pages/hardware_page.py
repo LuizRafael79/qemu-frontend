@@ -607,7 +607,7 @@ class HardwarePage(QWidget):
         self._set_all_signals_blocked(True)
 
         try:
-            qemu_args_dict = qemu_config_obj.all_args
+            qemu_args_dict = self.qemu_config.all_args
             # --- SMP ---
             smp_val = qemu_args_dict.get("smp")
             self.topology_checkbox.blockSignals(True)
