@@ -13,7 +13,9 @@ from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from PyQt5.QtCore import pyqtSignal, QTimer
 import os
-import shutil
+import shlex
+import subprocess
+import traceback
 from typing import Optional
 
 from app.context.app_context import AppContext
@@ -118,25 +120,23 @@ class OverviewPage(QWidget):
         self.app_context.qemu_config_updated.connect(self.refresh_display_from_qemu_config)
 
     def populate_qemu_binaries(self):
-        self.app_context.qemu_config._cache.clear()  # Clean last cache for reload
-        for path in os.environ.get("PATH", "").split(os.pathsep):
-            if os.path.isdir(path):
-                for f in os.listdir(path):
-                    if f.startswith("qemu-system-"):
-                        full_path = shutil.which(f)
-                        if full_path:
-                            qemu_path = full_path
-                            self.app_context.qemu_config._get_helper(qemu_path)  # Instances and cache the path
-        
-        all_binaries = list(self.app_context.qemu_config._cache.keys())
+        binaries_found = self.qemu_config.scan_for_binaries()
+
         self.qemu_combo.blockSignals(True)
         self.qemu_combo.clear()
-        self.qemu_combo.addItems([os.path.basename(p) for p in all_binaries])
+        self.qemu_combo.addItems([os.path.basename(p) for p in binaries_found])
         self.qemu_combo.blockSignals(False)
 
-        if not self.app_context.qemu_config.get_config_value("qemu_executable") and self.qemu_combo.count() > 0:
-            self.qemu_combo.setCurrentIndex(0)
-            self.on_qemu_combo_changed(0)
+        # Define o primeiro binário como padrão, se nenhum estiver definido
+        if not self.qemu_config.get_config_value("qemu_executable") and self.qemu_combo.count() > 0:
+            selected_basename = self.qemu_combo.itemText(0)
+            full_path = next((p for p in binaries_found if os.path.basename(p) == selected_basename), None)
+
+            if full_path:
+                # Isso força criação de cache e atualização de architecture
+                self._update_active_binary(full_path)
+                self.qemu_combo.setCurrentIndex(0)
+
         
     def load_config_to_ui(self):
         debug_log("Get qemu executable: {}".format(self.app_context.qemu_config.get_config_value("qemu_executable")))
@@ -182,38 +182,36 @@ class OverviewPage(QWidget):
             self.custom_path.blockSignals(False)
 
     def _update_active_binary(self, binary_path: Optional[str]):
+        if not binary_path:
+            arch_text = ""
+            self.arch_label.setText("Architecture: No QEMU binary selected")
+        else:
+            try:
+                arch_text = self.qemu_config.get_arch_for_binary(binary_path)
+                self.arch_label.setText(f"Architecture: {arch_text}")
+            except Exception as e:
+                arch_text = ""
+                self.arch_label.setText("Architecture: Invalid or unexpected error")
+                QMessageBox.critical(self, "Erro", f"Erro ao ler binário: {e}")
 
-        with self.app_context.signal_blocker():
-            custom_path_text = self.custom_path.text().strip()            
-            data_to_update = {
-                "qemu_executable": binary_path if binary_path else "",
-                "custom_executable": custom_path_text
-            }
+        data_to_update = {
+            "qemu_executable": binary_path if binary_path else "",
+            "custom_executable": self.custom_path.text().strip(),
+            "architecture": arch_text
+        }
 
-            if not binary_path:
-                self.arch_label.setText("Architecture: No QEMU binary selected")
-                data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
-            else:
-                try:
-                    arch_text = self.qemu_config.get_arch_for_binary(binary_path)
-                    self.arch_label.setText(f"Architecture: {arch_text}")
-                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
-                except FileNotFoundError as e:
-                    QMessageBox.critical(self, "Error", str(e))
-                    self.arch_label.setText("Architecture: Invalid QEMU binary")
-                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
-                    return
-                except Exception as e:
-                    QMessageBox.critical(self, "Unexpected error", f"Unexpected error loading binary: {e}")
-                    self.arch_label.setText("Architecture: Unexpected error")
-                    data_to_update["architecture"] = self.qemu_config.get_arch_for_binary(binary_path)
-                    return
+        self.qemu_config.update_qemu_config_from_page(data_to_update)
 
-            self.qemu_config.update_qemu_config_from_page(data_to_update)
-            self.qemu_binary_changed.emit(binary_path if binary_path else "")
-            self.overview_config_changed.emit()
-            if hasattr(self, "hardware_page") and self.hardware_page:
-                self.hardware_page.update_qemu_helper()
+        # Emissão de sinais
+        self.app_context.qemu_config_updated.emit(self.qemu_config)
+        self.qemu_binary_changed.emit(binary_path or "")
+        self.overview_config_changed.emit()
+
+        # Atualiza hardware_page se presente
+        if hasattr(self, "hardware_page") and self.hardware_page:
+            self.hardware_page.update_qemu_helper()
+            self.hardware_page._update_cpu_config_and_ui()
+
 
     def on_qemu_combo_changed(self, index):
         # Block signals of qemu_combo to avoid recurion or more than one signal emission
@@ -268,11 +266,6 @@ class OverviewPage(QWidget):
         self.custom_path.clear()
 
     def on_launch_clicked(self):
-        # Imports necessários no início do arquivo
-        import shlex
-        import subprocess
-        import traceback
-
         try:
             # 1. Gera a lista de comando completa a partir da sua lógica
             qemu_config_object = self.app_context.get_qemu_config_object()
@@ -379,13 +372,3 @@ class OverviewPage(QWidget):
         cursor.insertText(text + '\n', fmt)
         self.console_output.setTextCursor(cursor) 
         self.console_output.ensureCursorVisible()
-
-        # The use of type: ignore is only for the purpose of the IDE plugin, like Pylance in Vscode
-        # is not able to detect the types of functions arguments (false positive)
-
-
-
-
-
-
- 

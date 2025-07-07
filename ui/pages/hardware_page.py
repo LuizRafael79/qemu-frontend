@@ -41,8 +41,9 @@ class HardwarePage(QWidget):
     def __init__(self, app_context: AppContext):
         super().__init__()
         self.app_context = app_context
-        self.qemu_config = self.app_context.qemu_config
-        self.qemu_argument_parser = self.app_context.qemu_argument_parser
+        self.qemu_config = app_context.qemu_config
+        self.qemu_helper = app_context.qemu_helper()
+        self.qemu_argument_parser = app_context.qemu_argument_parser
         self._setup_ui
 
         self.host_cpu_count = multiprocessing.cpu_count()
@@ -401,7 +402,7 @@ class HardwarePage(QWidget):
             if 'boot' in hardware_data:
                 del hardware_data['boot']
         
-        # Send data dict to AppContext.
+        # Send data dict to AppContext.        
         self.qemu_config.update_qemu_config_from_page(hardware_data)
         overview_page = self.app_context.get_page("overview")
         if overview_page:
@@ -587,7 +588,6 @@ class HardwarePage(QWidget):
             self.load_cpu_list()     # Popula com defaults
             self.load_machine_list() # Popula com defaults
             return
-
         helper = self.qemu_config.get_qemu_helper(bin_path) if self.qemu_config else None
         if helper:
             self.qemu_helper = helper
@@ -739,6 +739,7 @@ class HardwarePage(QWidget):
                     self.boot_list.addItem(QListWidgetItem(full_text))
 
             # --- Atualizações visuais finais ---
+            print("hardware_page recebeu qemu_config_updated")
             self._update_cpu_config_and_ui()
             self._update_warning_only()
 

@@ -9,12 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.context.app_context import AppContext
+    from app.utils.qemu_helper import QemuHelper
 
 class QemuConfig:
     _cache = {}
     current_qemu_executable: str = ""
     def __init__(self, app_context: "AppContext"):
         self.app_context = app_context
+        
         # Dicionário para todos os argumentos QEMU
         self.all_args: Dict[str, Any] = {
             'm': 1024,
@@ -35,6 +37,35 @@ class QemuConfig:
         }
         # Argumentos que o GUI do app NÃO suporta
         self.extra_args_list: List[Tuple[str, Optional[str]]] = []
+
+    def scan_for_binaries(self):
+        """
+        Popula os binários QEMU disponíveis e define o executável atual se não existir.
+        """
+        # Busca usando o helper global (app_context), cria se não existir
+        helper = self.app_context.qemu_helper()
+        binaries = helper.list_qemu_binaries()
+        self._available_binaries = binaries
+        if not self._available_binaries:
+            self.current_qemu_executable = ""
+            self.set_config_value("qemu_executable", "")
+            self.set_config_value("architecture", "")
+            return []
+
+        binary_path = self._available_binaries[0]
+        self.current_qemu_executable = binary_path
+        self.set_config_value("qemu_executable", binary_path)
+
+        try:
+            # Cria helper para esse binário, forçando cache se necessário
+            helper = self.app_context.qemu_helper()
+            arch = helper.get_info("architecture") or "Unknown"
+            self.set_config_value("architecture", arch)
+        except Exception as e:
+            print(f"[ERRO] Falha ao gerar cache do QEMU: {e}")
+            self.set_config_value("architecture", "Unknown")
+
+        return self._available_binaries
 
     @classmethod
     def set_app_context(cls, app_context):
@@ -238,14 +269,8 @@ class QemuConfig:
         self._is_modified = True
 
         for arg_name, arg_value in data_dict.items():
-            if isinstance(arg_value, list) and arg_name in self.all_args:
-                # Mescla listas ao invés de sobrescrever para evitar perder dados
-                # Pode ser ajustado conforme a lógica exata de merge desejada
-                existing_list = self.all_args.get(arg_name, [])
-                # Opcional: evitar duplicatas, etc
-                self.all_args[arg_name] = arg_value
-            else:
-                self.all_args[arg_name] = arg_value
+            self.all_args[arg_name] = arg_value  # Sempre atualiza direto
 
-        if "qemu_executable" in data_dict:
-            self.current_qemu_executable = data_dict["qemu_executable"]
+            if arg_name == "qemu_executable":
+                self.current_qemu_executable = arg_value
+

@@ -35,6 +35,24 @@ class QemuHelper:
         self.data = self._load_or_generate_cache()
 
     @classmethod
+    def list_qemu_binaries(cls) -> list[str]:
+        """
+        Busca por binários qemu-system-* no PATH e retorna uma lista de caminhos válidos.
+        """
+        found = []
+        paths = os.environ.get("PATH", "").split(os.pathsep)
+        for dir in paths:
+            try:
+                for name in os.listdir(dir):
+                    if name.startswith("qemu-system-"):
+                        full_path = os.path.join(dir, name)
+                        if os.access(full_path, os.X_OK) and cls._is_valid_qemu_binary(full_path):
+                            found.append(full_path)
+            except FileNotFoundError:
+                continue
+        return sorted(set(found))
+
+    @classmethod
     def get_helper(cls, qemu_path: str, app_context):
         if qemu_path not in cls._cache:
             cls._cache[qemu_path] = cls(qemu_path, app_context)
